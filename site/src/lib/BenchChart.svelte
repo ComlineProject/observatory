@@ -179,16 +179,28 @@
 		accepted: steps.filter((s) => s.status === 'accepted').length
 	});
 
-	// Payload-size view: families whose rows have a numeric param.
+	// Payload-size view: families whose rows have a numeric param, one line per
+	// metric (instructions and wall time never share a line).
 	const families = (() => {
 		const f = new Map<string, number[]>();
 		metrics.forEach((m, i) => {
-			if (m.param !== null && m.group) f.set(m.group, [...(f.get(m.group) ?? []), i]);
+			const k = `${m.metric}\u0000${m.group}`;
+			if (m.param !== null && m.group) f.set(k, [...(f.get(k) ?? []), i]);
 		});
 		for (const v of f.values()) v.sort((x, y) => metrics[x].param! - metrics[y].param!);
 		return f;
 	})();
-	let familyNames = $derived([...families.keys()].filter((g) => !ctx.group || g === ctx.group || g.startsWith(ctx.group + '/')));
+	// Metrics with payload families; those without a runner first (the default).
+	const pMetrics = [...new Set([...families.keys()].map((k) => k.split('\u0000')[0]))].sort(
+		(a, b) => Number(a.includes('@')) - Number(b.includes('@')) || a.localeCompare(b)
+	);
+	let pMetric = $state(untrack(() => pMetrics[0] ?? ''));
+	let familyNames = $derived(
+		[...families.keys()]
+			.filter((k) => k.startsWith(pMetric + '\u0000'))
+			.map((k) => k.slice(pMetric.length + 1))
+			.filter((g) => !ctx.group || g === ctx.group || g.startsWith(ctx.group + '/'))
+	);
 	let family = $state('');
 	let fam = $derived(familyNames.includes(family) ? family : (familyNames[0] ?? ''));
 	let payloadAt = $state<string | null>(null);
@@ -198,7 +210,8 @@
 		for (const v of ctx.marked) src.loadVersion(v);
 	});
 	let pVersions = $derived(ctx.marked.length ? ctx.marked.slice(0, MAX_SERIES) : [pv]);
-	let pRows = $derived(families.get(fam) ?? []);
+	let pRows = $derived(families.get(`${pMetric}\u0000${fam}`) ?? []);
+	let pUnit = $derived(pRows.length ? metrics[pRows[0]].unit : unit);
 	let pxs = $derived(pRows.map((i) => metrics[i].param!));
 	let pys = $derived((void src.rev, pVersions.map((v) => pRows.map((i) => src.columns[i][v] as number | null))));
 	let pseries = $derived(pVersions.map((v, k) => ({ label: versions[v].label, color: SERIES[k] })));
@@ -285,9 +298,16 @@
 	{/if}
 {/if}
 
-{#if familyNames.length}
+{#if families.size}
 	<h2>Payload size</h2>
 	<div class="row">
+		{#if pMetrics.length > 1}
+			<label>metric
+				<select bind:value={pMetric}>
+					{#each pMetrics as m (m)}<option value={m}>{m}</option>{/each}
+				</select>
+			</label>
+		{/if}
 		<label>family
 			<select value={fam} onchange={(e) => (family = e.currentTarget.value)}>
 				{#each familyNames as f (f)}<option value={f}>{f}</option>{/each}
@@ -301,7 +321,7 @@
 		{/if}
 	</div>
 	<div class="panel">
-		<Chart xs={pxs} ys={pys} series={pseries} xLabel={(x) => `${x} B`} logX logY yLabel={unitLabel(unit)} {fmtY} {fmtV} height={260} />
+		<Chart xs={pxs} ys={pys} series={pseries} xLabel={(x) => `${x} B`} logX logY yLabel={unitLabel(pUnit)} fmtY={(v) => fmtAxis(v, pUnit)} fmtV={(v) => fmtUnit(v, pUnit)} height={260} />
 	</div>
 {/if}
 
