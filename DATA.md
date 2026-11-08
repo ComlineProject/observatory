@@ -50,7 +50,10 @@ changed `path` is one **version**.
 | `run` | the report's `run` URL, or `null` |
 | `toolchain` | the report's `toolchain`, or `null` |
 
-Versions are ordered by `date`, ties by walk order. Labels are recomputed
+Versions are ordered by `date`, ties by walk order. A commit on the walk
+that deleted `path` is not a version. If `commit` isn't in the repository it
+stays as reported and the collector warns on stderr. A cycle's `date` is the
+tag commit's committer date (not the tag object's). Labels are recomputed
 from scratch on every run, so a new tag regroups older versions on its own.
 
 ## Output layout
@@ -116,8 +119,12 @@ collector exits non-zero only on a bad `sources.toml` or `--strict`.
 - `metrics` is the union over all versions, sorted by `key` then `metric`. A
   chunk's `values[i]` belongs to `metrics[i]`.
 - `group` is `key` up to its last `/` (`null` when there's none); `param` is the
-  last segment when it is a plain integer (`ffi/abi/…/message/4096` → group
-  `ffi/abi/…/message`, param `4096`), so payload-size families line up.
+  last segment when it is a plain integer, written as a JSON number
+  (`ffi/abi/…/message/4096` → group `ffi/abi/…/message`, param `4096`), so
+  payload-size families line up; `null` otherwise.
+- `unit` is `null` for `verdict` and `state` rows. Fuzz units: `executions`,
+  `inputs` (corpus), `findings`, `s` (seconds), `cases`. A format-2 bench
+  metric's unit is its metric name.
 - `features` (conformance only): `{ "<feature id>": { "title", "description" } }`
   from the source's `features` file; `null` otherwise.
 
@@ -163,6 +170,7 @@ runtime).
 - Metric rows per target: `key` = target, `metric` ∈ `executions`, `corpus`,
   `findings`, `seconds`; `type` = `"number"`. A target with `error` has `null`
   for all four in that version (a gap, never a zero).
+- A `proptest` verdict other than `pass` / `fail` is `null`.
 - Metric rows per property: `key` = `proptest/<property>`, `metric` =
   `"verdict"`, `type` = `"verdict"`, values `"pass"` / `"fail"` / `null`.
 - One row `key` = `proptest`, `metric` = `"cases"`, `type` = `"number"`.
@@ -177,13 +185,21 @@ Input, either shape:
   `{ features: [{id,title,description}], generators: [{ name, support: { "<feature>": { state, proven_by, note, since, tracking, failing? } } }] }`;
 - a runtime report: `{ runtime, support: { "<feature>": { state, proven_by, note?, tracking?, failing? } } }`.
 
-- Metric rows: `key` = `<subject>/<feature>` (subject = generator `name` or
-  `runtime`), `metric` = `"state"`, `type` = `"state"`, values `"supported"` /
-  `"partial"` / `"ignored"` / `"unsupported"` / `null`.
-- generation's own `features` list fills `index.features` there; a runtime
+- Metric rows: `key` = `<subject>/<feature>` (subject = the generator's `name`,
+  or the value of the report's `runtime` field, e.g. `rust`), `metric` = `"state"`, `type` = `"state"`, values `"supported"` /
+  `"partial"` / `"ignored"` / `"unsupported"` / `null` (also for any other
+  value).
+- generation's own `features` list (from the latest version) fills `index.features` there; a runtime
   report takes them from `features` in `sources.toml`.
 - Shard: `{ "subjects": { "<subject>": { "<feature>": { state, proven_by, note, tracking, failing } } } }`
-  with absent fields as `null` and `proven_by` / `failing` as sorted lists.
+  with absent fields as `null` and `proven_by` / `failing` as sorted lists
+  (`null` when absent). `since` is not carried.
+
+**A matrix combines sources.** The site shows every source with the same
+`matrix` as one table. Their histories are separate, so a matrix "version" is
+a point in time: each source at its newest version on or before that date.
+Labels can repeat across sources, so the site's URLs name a version as
+`<source id>:<label>` (`?a=codegen:unreleased-dev.1`).
 
 ## Running
 
@@ -196,6 +212,14 @@ python3 collector/collect.py --sources sources.toml --out site/static/data \
   --no-checkout`, then `git fetch --tags` and each needed branch).
 - `--local name=path` reads an existing checkout instead of cloning. It uses
   that checkout's `origin/<branch>` refs and tags, and never writes to it.
+- Exit status: `0` on success, `2` on a bad `sources.toml` (or bad
+  arguments), `1` with `--strict` when any source is unpublished. If a
+  `--local` or cache repository can't be read the sources using it are
+  unpublished.
+- `generated` in the manifest is the current time, or `SOURCE_DATE_EPOCH`
+  when that is set (the only non-deterministic byte in the output).
+- `--out/sources/` is deleted at the start of every run, so stale hashed files
+  don't pile up; nothing else outside it is removed.
 - `--strict` exits non-zero when any source is unpublished (for local checks;
   CI doesn't pass it).
 - Python 3.11+ standard library only (`tomllib`), plus `git`.

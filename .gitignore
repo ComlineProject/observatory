@@ -4,3 +4,5 @@ site/.svelte-kit/
 site/build/
 site/static/data/
 __pycache__/
+site/test-results/
+site/playwright-report/
