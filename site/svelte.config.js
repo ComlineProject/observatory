@@ -34,6 +34,8 @@ const config = {
 		},
 		prerender: {
 			handleMissingId: 'ignore',
+			// A kind with no source yet has no page to prerender; the 404.html shell serves it.
+			handleUnseenRoutes: 'ignore',
 			entries: entries()
 		}
 	}
