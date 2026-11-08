@@ -14,7 +14,7 @@
 	import type { Snippet } from 'svelte';
 	import { onMount } from 'svelte';
 	import { UrlState } from './url.svelte';
-	import { loadSource, shortCommit, shortDate, type Metric, type Source } from './data.svelte';
+	import { directionOf, loadSource, shortCommit, shortDate, type Metric, type Source } from './data.svelte';
 	import VersionPicker from './VersionPicker.svelte';
 	import DeltaTable from './DeltaTable.svelte';
 	import MultiGrid from './MultiGrid.svelte';
@@ -153,7 +153,7 @@
 		<VersionPicker name="b" {items} value={url.get('b')} onpick={(k) => url.set({ b: k })} />
 	</div>
 	{#if a !== null && b !== null}
-		<DeltaTable {src} {a} {b} {group} {threshold} {text} {direction} />
+		<DeltaTable {src} {a} {b} {group} {threshold} {text} direction={direction ?? ((m) => directionOf(m, src!.index.kind))} />
 	{:else}
 		<p class="muted">Pick two versions.</p>
 	{/if}

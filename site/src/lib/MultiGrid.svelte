@@ -1,12 +1,13 @@
 <script lang="ts">
 	// N versions side by side: one column per chosen version.
 	import VirtualTable from './VirtualTable.svelte';
-	import { fmtNum, type Source, type Value } from './data.svelte';
+	import { fmtUnit, type Source, type Value } from './data.svelte';
 
 	let { src, vs, group = '', text = '' }: { src: Source; vs: number[]; group?: string; text?: string } = $props();
 
 	interface Row {
 		name: string;
+		unit: string | null;
 		vals: (Value | undefined)[];
 	}
 	let rows = $derived.by(() => {
@@ -17,7 +18,7 @@
 			if (group && m.group !== group && !(m.group ?? '').startsWith(group + '/')) return;
 			const name = src.nameOf(m);
 			if (t && !name.toLowerCase().includes(t)) return;
-			out.push({ name, vals: vs.map((v) => src.columns[i][v]) });
+			out.push({ name, unit: m.unit, vals: vs.map((v) => src.columns[i][v]) });
 		});
 		return out;
 	});
@@ -35,7 +36,7 @@
 			<td title={r.name}>{r.name}</td>
 			{#each r.vals as x, k (k)}
 				<td class="num">
-					{#if typeof x === 'string'}<span class="state"><span class="swatch s-{x}"></span>{x}</span>{:else}{fmtNum(x)}{/if}
+					{#if typeof x === 'string'}<span class="state"><span class="swatch s-{x}"></span>{x}</span>{:else}{fmtUnit(x, r.unit)}{/if}
 				</td>
 			{/each}
 		</tr>

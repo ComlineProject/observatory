@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import Chart, { type SeriesSpec } from './Chart.svelte';
+	import VerdictStrip from './VerdictStrip.svelte';
 	import { fmtNum, type Source } from './data.svelte';
 	import { MAX_SERIES, SERIES } from './pick';
 	import type { Ctx } from './SourcePage.svelte';
@@ -120,23 +121,10 @@
 		<span class="state"><span class="swatch s-none"></span>no verdict</span>
 		· {strip.vs.length} versions in the chart's range
 	</p>
-	<div class="strip panel">
-		{#each strip.rows as r (r.name)}
-			<div class="srow">
-				<span class="pname" title={r.name}>{r.name}</span>
-				<span class="cells" style:grid-template-columns="repeat({strip.vs.length}, minmax(3px, 1fr))">
-					{#each r.vals as v, k (k)}
-						<button
-							class="cell swatch s-{v ?? 'none'}"
-							title="{versions[strip.vs[k]].label}: {v ?? 'no verdict'}"
-							aria-label="{r.name} at {versions[strip.vs[k]].label}: {v ?? 'no verdict'}"
-							onclick={() => ctx.open(strip.vs[k])}
-						></button>
-					{/each}
-				</span>
-			</div>
-		{/each}
-	</div>
+	<VerdictStrip
+		rows={strip.rows.map((r) => ({ name: r.name, cells: r.vals.map((v, k) => ({ v, vi: strip.vs[k], label: versions[strip.vs[k]].label })) }))}
+		onpick={(vi) => ctx.open(vi)}
+	/>
 {/if}
 {#if ctx.at !== null}
 	<p class="muted small">cases at {versions[ctx.at].label}: {fmtNum(src.columns[rowOf.get('proptest\u0000cases') ?? -1]?.[ctx.at])}</p>
@@ -158,33 +146,6 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-	}
-	.srow {
-		display: grid;
-		grid-template-columns: minmax(120px, 240px) 1fr;
-		gap: 8px;
-		align-items: center;
-		margin: 2px 0;
-	}
-	.pname {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: 12px;
-	}
-	.cells {
-		display: grid;
-		gap: 1px;
-	}
-	.cell {
-		width: auto;
-		height: 14px;
-		padding: 0;
-		border: 0;
-		border-radius: 1px;
-	}
-	.cell.s-none {
-		border: 1px dashed var(--text-muted);
 	}
 	.small {
 		font-size: 12px;

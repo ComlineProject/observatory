@@ -1,7 +1,7 @@
 <script lang="ts">
 	// A against B: one array lookup per metric over already-loaded chunks.
 	import VirtualTable from './VirtualTable.svelte';
-	import { fmtNum, fmtPct, mark, type Metric, type Source, type Value } from './data.svelte';
+	import { fmtUnit, fmtPct, mark, type Metric, type Source, type Value } from './data.svelte';
 
 	let {
 		src,
@@ -24,6 +24,7 @@
 
 	interface Row {
 		name: string;
+		unit: string | null;
 		va: Value | undefined;
 		vb: Value | undefined;
 		d: number | null;
@@ -52,11 +53,11 @@
 				const pct = va !== 0 ? (d / Math.abs(va)) * 100 : d === 0 ? 0 : null;
 				if (threshold > 0 && (pct === null || Math.abs(pct) < threshold)) continue;
 				const dir = direction(m);
-				out.push({ name, va, vb, d, pct, changed: d !== 0, dir, score: pct === null ? (d === 0 ? 0 : Infinity) : pct * (dir || 1) });
+				out.push({ name, unit: m.unit, va, vb, d, pct, changed: d !== 0, dir, score: pct === null ? (d === 0 ? 0 : Infinity) : pct * (dir || 1) });
 			} else {
 				const changed = (va ?? null) !== (vb ?? null);
 				if (threshold > 0 && !changed) continue;
-				out.push({ name, va, vb, d: null, pct: null, changed, dir: 0, score: changed ? -1e300 : -Infinity });
+				out.push({ name, unit: m.unit, va, vb, d: null, pct: null, changed, dir: 0, score: changed ? -1e300 : -Infinity });
 			}
 		}
 		// Largest regression (largest increase) first; non-numeric changes after, unchanged last.
@@ -90,9 +91,9 @@
 		{#snippet row(r: Row)}
 			<tr>
 				<td title={r.name}>{r.name}</td>
-				<td class="num">{fmtNum(r.va)}</td>
-				<td class="num">{fmtNum(r.vb)}</td>
-				<td class="num {cls(r.d, r.dir)}">{r.d === null ? (r.changed ? 'changed' : '') : (r.d > 0 ? '+' : '') + fmtNum(r.d)}</td>
+				<td class="num">{fmtUnit(r.va, r.unit)}</td>
+				<td class="num">{fmtUnit(r.vb, r.unit)}</td>
+				<td class="num {cls(r.d, r.dir)}">{r.d === null ? (r.changed ? 'changed' : '') : fmtUnit(r.d, r.unit === '%' ? 'pp' : r.unit, true)}</td>
 				<td class="num {cls(r.pct, r.dir)}">{fmtPct(r.pct)}</td>
 			</tr>
 		{/snippet}

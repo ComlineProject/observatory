@@ -10,6 +10,9 @@ const ok = manifest.sources.filter((s) => s.status === 'ok');
 const bench = ok.find((s) => s.kind === 'bench');
 const twoBench = ok.filter((s) => s.kind === 'bench').length >= 2;
 const fuzz = ok.find((s) => s.kind === 'fuzz');
+// One page per newer kind: the first source of each (skipped when absent).
+const NEW_KINDS = ['size', 'compile', 'coverage', 'ci'];
+const firstOf = Object.fromEntries(NEW_KINDS.map((k) => [k, ok.find((s) => s.kind === k)]));
 const matrices = [...new Set(ok.filter((s) => s.kind === 'conformance').map((s) => s.matrix!))];
 
 const FCP_MS = 1000;
@@ -45,7 +48,9 @@ const pages: [string, string, boolean][] = [
 	...(bench ? [['bench', `bench/${bench.id}/`, true] as [string, string, boolean]] : []),
 	...(twoBench ? [['ratio', 'ratio/', false] as [string, string, boolean]] : []),
 	...(fuzz ? [['fuzz', `fuzz/${fuzz.id}/`, true] as [string, string, boolean]] : []),
-	...matrices.map((m) => [`conformance ${m}`, `conformance/${m}/`, false] as [string, string, boolean])
+	...matrices.map((m) => [`conformance ${m}`, `conformance/${m}/`, false] as [string, string, boolean]),
+	...NEW_KINDS.flatMap((k) => (firstOf[k] ? [[k, `${k}/${firstOf[k]!.id}/`, true] as [string, string, boolean]] : [])),
+	['kind index ci', 'ci/', false]
 ];
 
 for (const [name, path, chart] of pages) {
@@ -57,33 +62,42 @@ for (const [name, path, chart] of pages) {
 	});
 }
 
-test('bench: switching compare A or B', async ({ page }) => {
-	test.skip(!bench, 'no bench source');
-	const index = JSON.parse(readFileSync(new URL(bench!.index!, DATA), 'utf8')) as { versions: { label: string; release: string | null }[] };
-	const vs = index.versions;
-	const releases = vs.filter((v) => v.release).map((v) => v.label);
-	const latest = vs.at(-1)!.label;
-	const prev = vs.at(-2)!.label;
-	await page.goto(`bench/${bench!.id}/?a=${prev}&b=${latest}`);
-	await expect(page.getByTestId('delta-table')).toBeVisible();
-	await page.waitForLoadState('networkidle');
+// Compare A / B exists on bench, size, compile and coverage pages.
+const compares: [string, (typeof ok)[number] | undefined][] = [
+	['bench', bench],
+	['size', firstOf.size],
+	['compile', firstOf.compile],
+	['coverage', firstOf.coverage]
+];
+for (const [kind, src] of compares) {
+	test(`${kind}: switching compare A or B`, async ({ page }) => {
+		test.skip(!src, `no ${kind} source`);
+		const index = JSON.parse(readFileSync(new URL(src!.index!, DATA), 'utf8')) as { versions: { label: string; release: string | null }[] };
+		const vs = index.versions;
+		const releases = vs.filter((v) => v.release).map((v) => v.label);
+		const latest = vs.at(-1)!.label;
+		const prev = vs.at(-2)!.label;
+		await page.goto(`${kind}/${src!.id}/?a=${prev}&b=${latest}`);
+		await expect(page.getByTestId('delta-table')).toBeVisible();
+		await page.waitForLoadState('networkidle');
 
-	// Picks that stay inside the loaded data (releases chunk + newest cycle), alternating A and B.
-	const picks: ['a' | 'b', string][] = [];
-	for (const r of releases.slice(-3)) picks.push(['a', r]);
-	picks.push(['b', prev], ['b', latest], ['a', prev]);
-	const times: number[] = [];
-	for (const [side, label] of picks) {
-		await page.locator(`[data-picker="${side}"]`).click();
-		const opt = page.locator('[role="listbox"] [role="option"]', { hasText: new RegExp(`^${label.replace(/[.+]/g, '\\$&')}\\b`) }).first();
-		if (!(await opt.count())) {
-			await page.locator('[role="listbox"] input[type="checkbox"]').check();
+		// Picks that stay inside the loaded data (releases chunk + newest cycle), alternating A and B.
+		const picks: ['a' | 'b', string][] = [];
+		for (const r of releases.slice(-3)) picks.push(['a', r]);
+		picks.push(['b', prev], ['b', latest], ['a', prev]);
+		const times: number[] = [];
+		for (const [side, label] of picks) {
+			await page.locator(`[data-picker="${side}"]`).click();
+			const opt = page.locator('[role="listbox"] [role="option"]', { hasText: new RegExp(`^${label.replace(/[.+]/g, '\\$&')}\\b`) }).first();
+			if (!(await opt.count())) {
+				await page.locator('[role="listbox"] input[type="checkbox"]').check();
+			}
+			await page.evaluate(() => performance.clearMeasures('compare-switch'));
+			await opt.click();
+			const d = await page.waitForFunction(() => performance.getEntriesByName('compare-switch')[0]?.duration, undefined, { timeout: 5000 });
+			times.push((await d.jsonValue()) as number);
 		}
-		await page.evaluate(() => performance.clearMeasures('compare-switch'));
-		await opt.click();
-		const d = await page.waitForFunction(() => performance.getEntriesByName('compare-switch')[0]?.duration, undefined, { timeout: 5000 });
-		times.push((await d.jsonValue()) as number);
-	}
-	console.log(`compare switch: ${times.map((t) => t.toFixed(1)).join(', ')} ms`);
-	expect(Math.max(...times)).toBeLessThan(SWITCH_MS);
-});
+		console.log(`${kind} compare switch: ${times.map((t) => t.toFixed(1)).join(', ')} ms`);
+		expect(Math.max(...times)).toBeLessThan(SWITCH_MS);
+	});
+}

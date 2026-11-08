@@ -6,10 +6,11 @@ import { existsSync, readFileSync } from 'node:fs';
 // Sources added later still open through the 404.html fallback.
 function entries() {
 	const out = ['*', '/conformance/wire/', '/conformance/codegen/'];
+	for (const k of ['bench', 'fuzz', 'conformance', 'size', 'coverage', 'compile', 'ci']) out.push(`/${k}/`);
 	const file = new URL('./static/data/manifest.json', import.meta.url);
 	if (!existsSync(file)) return out;
 	for (const s of JSON.parse(readFileSync(file, 'utf8')).sources ?? []) {
-		if (s.kind === 'bench' || s.kind === 'fuzz') out.push(`/${s.kind}/${s.id}/`);
+		if (s.kind !== 'conformance') out.push(`/${s.kind}/${s.id}/`);
 		if (s.kind === 'conformance' && s.matrix) out.push(`/conformance/${s.matrix}/`);
 	}
 	return [...new Set(out)];
@@ -33,6 +34,8 @@ const config = {
 		},
 		prerender: {
 			handleMissingId: 'ignore',
+			// A kind with no source yet has no page to prerender; the 404.html shell serves it.
+			handleUnseenRoutes: 'ignore',
 			entries: entries()
 		}
 	}

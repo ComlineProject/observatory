@@ -2,7 +2,7 @@
 	import Chart, { type SeriesSpec } from './Chart.svelte';
 	import VirtualTable from './VirtualTable.svelte';
 	import VersionPicker from './VersionPicker.svelte';
-	import { fmtNum, type Source } from './data.svelte';
+	import { fmtAxis, fmtUnit, unitLabel, type Source } from './data.svelte';
 	import { MAX_SERIES, SERIES, pickItems } from './pick';
 	import type { Ctx } from './SourcePage.svelte';
 
@@ -77,6 +77,10 @@
 		...ctx.marked.filter((i) => !versions[i].release).map((i) => ({ x: i, label: versions[i].label }))
 	]);
 	let at = $derived(ctx.at ?? versions.length - 1);
+	// The axis unit: the first selected series' (a source's numbers share one unit per kind).
+	let unit = $derived(selected.length ? metrics[selected[0][0]].unit : (metrics[0]?.unit ?? null));
+	let fmtY = $derived((v: number) => fmtAxis(v, unit));
+	let fmtV = $derived((v: number) => fmtUnit(v, unit));
 
 	// Payload-size view: families whose rows have a numeric param.
 	const families = (() => {
@@ -119,7 +123,7 @@
 
 <div class="panel">
 	{#if selected.length === 0}<p class="muted">Select series in the table below.</p>{/if}
-	<Chart {xs} {ys} {series} {xLabel} {marks} xRange={range} {onrange} yLabel="instructions" onpick={(x) => ctx.open(x)} />
+	<Chart {xs} {ys} {series} {xLabel} {marks} xRange={range} {onrange} yLabel={unitLabel(unit)} {fmtY} {fmtV} onpick={(x) => ctx.open(x)} />
 </div>
 
 <VirtualTable rows={filtered} height={300}>
@@ -141,7 +145,7 @@
 				{#if i in slots}<span class="swatch" style:background="var({SERIES[slots[i]]})"></span>{/if}
 				{S.nameOf(metrics[i])}
 			</td>
-			<td class="num">{(void src.rev, fmtNum(src.columns[i][at]))}</td>
+			<td class="num">{(void src.rev, fmtUnit(src.columns[i][at], metrics[i].unit))}</td>
 		</tr>
 	{/snippet}
 </VirtualTable>
@@ -162,6 +166,6 @@
 		{/if}
 	</div>
 	<div class="panel">
-		<Chart xs={pxs} ys={pys} series={pseries} xLabel={(x) => `${x} B`} logX logY yLabel="instructions" height={260} />
+		<Chart xs={pxs} ys={pys} series={pseries} xLabel={(x) => `${x} B`} logX logY yLabel={unitLabel(unit)} {fmtY} {fmtV} height={260} />
 	</div>
 {/if}

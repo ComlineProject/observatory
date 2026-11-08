@@ -2,7 +2,19 @@
 // Every file is fetched at most once and kept in memory.
 import { base } from '$app/paths';
 
-export type Kind = 'bench' | 'fuzz' | 'conformance';
+export type Kind = 'bench' | 'fuzz' | 'conformance' | 'size' | 'coverage' | 'compile' | 'ci';
+
+/** Navigation order and the name of each kind's section. */
+export const KINDS: { kind: Kind; label: string }[] = [
+	{ kind: 'bench', label: 'Benchmarks' },
+	{ kind: 'fuzz', label: 'Fuzzing' },
+	{ kind: 'conformance', label: 'Conformance' },
+	{ kind: 'size', label: 'Size' },
+	{ kind: 'coverage', label: 'Coverage' },
+	{ kind: 'compile', label: 'Compile' },
+	{ kind: 'ci', label: 'CI' }
+];
+export const kindLabel = (k: string) => KINDS.find((x) => x.kind === k)?.label ?? k;
 export type Value = number | string | null;
 
 export interface ManifestSource {
@@ -44,6 +56,8 @@ export interface Metric {
 	type: 'number' | 'verdict' | 'state';
 	group: string | null;
 	param: number | null;
+	/** Which way is better (DATA.md); derived from the kind when absent. */
+	better?: 'higher' | 'lower' | null;
 }
 export interface Index {
 	id: string;
@@ -108,7 +122,7 @@ export class Source {
 
 	constructor(index: Index) {
 		this.index = index;
-		this.multiMetric = index.kind === 'bench' && new Set(index.metrics.map((m) => m.metric)).size > 1;
+		this.multiMetric = index.kind !== 'fuzz' && index.kind !== 'ci' && new Set(index.metrics.map((m) => m.metric)).size > 1;
 		const n = index.versions.length;
 		this.columns = index.metrics.map(() => new Array(n));
 		index.versions.forEach((v, i) => this.byLabel.set(v.label, i));
@@ -227,6 +241,44 @@ export function fmtNum(v: Value | undefined): string {
 	if (typeof v === 'string') return v;
 	return v.toLocaleString('en-US');
 }
+/** DATA.md "Which way is better": `better` when the collector wrote it, else derived from the kind. */
+export function betterOf(m: Metric, kind: Kind): 'higher' | 'lower' | null {
+	if (m.better !== undefined) return m.better;
+	if (m.type !== 'number') return null;
+	if (kind === 'coverage' || (kind === 'fuzz' && (m.metric === 'executions' || m.metric === 'corpus'))) return 'higher';
+	return 'lower';
+}
+/** 1 when an increase is a regression, -1 when a decrease is, 0 when neither. */
+export function directionOf(m: Metric, kind: Kind): number {
+	const b = betterOf(m, kind);
+	return b === 'lower' ? 1 : b === 'higher' ? -1 : 0;
+}
+
+/** A value in its metric's unit: bytes as KB/MB, seconds, percentages. */
+export function fmtUnit(v: Value | undefined, unit: string | null, signed = false): string {
+	if (v === null || v === undefined) return '–';
+	if (typeof v === 'string') return v;
+	const sign = signed && v > 0 ? '+' : '';
+	if (unit === 'bytes') {
+		const a = Math.abs(v);
+		const [d, u] = a >= 1e9 ? [1e9, 'GB'] : a >= 1e6 ? [1e6, 'MB'] : a >= 1e3 ? [1e3, 'KB'] : [1, 'B'];
+		return `${sign}${(v / d).toLocaleString('en-US', { maximumFractionDigits: d === 1 ? 0 : 2 })} ${u}`;
+	}
+	if (unit === 's') return `${sign}${v.toLocaleString('en-US', { maximumFractionDigits: 2 })} s`;
+	if (unit === 'pp') return `${sign}${v.toLocaleString('en-US', { maximumFractionDigits: 2 })} pp`;
+	if (unit === '%') return `${sign}${v.toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
+	return sign + v.toLocaleString('en-US');
+}
+/** Axis tick: compact, in the unit. */
+const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 });
+export function fmtAxis(v: number, unit: string | null): string {
+	if (unit === 'bytes' || unit === 's' || unit === '%') return fmtUnit(v, unit);
+	return compact.format(v);
+}
+export function unitLabel(unit: string | null): string {
+	return unit === 's' ? 'seconds' : unit === '%' ? 'percent' : (unit ?? '');
+}
+
 export function fmtPct(p: number | null): string {
 	if (p === null || !isFinite(p)) return '–';
 	return `${p > 0 ? '+' : ''}${p.toFixed(2)}%`;
