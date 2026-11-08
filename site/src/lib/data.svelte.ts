@@ -98,6 +98,8 @@ export interface LedgerEntry {
 interface Chunk {
 	versions: number[];
 	values: Value[][];
+	/** Bench only, when any metric reports one: each value's relative spread (DATA.md). */
+	spread?: ((number | null)[] | null)[];
 }
 
 export const FORMAT = 1;
@@ -138,6 +140,8 @@ export function loadSummary(): Promise<Record<string, CardSummary>> {
 export class Source {
 	index: Index;
 	columns: (Value | undefined)[][];
+	/** Per metric, the loaded spreads (relative width), or null for a metric without any so far. */
+	spreads: ((number | null | undefined)[] | null)[];
 	/** Bumped whenever a chunk lands, so derived views recompute. */
 	rev = $state(0);
 	private loaded = new Set<string>();
@@ -151,6 +155,7 @@ export class Source {
 		this.multiMetric = index.kind !== 'fuzz' && index.kind !== 'ci' && new Set(index.metrics.map((m) => m.metric)).size > 1;
 		const n = index.versions.length;
 		this.columns = index.metrics.map(() => new Array(n));
+		this.spreads = index.metrics.map(() => null);
 		index.versions.forEach((v, i) => this.byLabel.set(v.label, i));
 		const cyc = new Map(index.cycles.map((c, i) => [c.id, i]));
 		this.cycleOf = index.versions.map((v) => cyc.get(v.cycle) ?? -1);
@@ -166,6 +171,13 @@ export class Source {
 				for (let i = 0; i < c.values.length && i < cols.length; i++) {
 					const row = c.values[i];
 					const col = cols[i];
+					for (let j = 0; j < c.versions.length; j++) col[c.versions[j]] = row[j];
+				}
+				const sp = c.spread ?? [];
+				for (let i = 0; i < sp.length && i < cols.length; i++) {
+					const row = sp[i];
+					if (!row) continue;
+					const col = (this.spreads[i] ??= new Array(this.index.versions.length));
 					for (let j = 0; j < c.versions.length; j++) col[c.versions[j]] = row[j];
 				}
 				this.loaded.add(path);
@@ -303,6 +315,12 @@ export function fmtAxis(v: number, unit: string | null): string {
 }
 export function unitLabel(unit: string | null): string {
 	return unit === 's' ? 'seconds' : unit === '%' ? 'percent' : (unit ?? '');
+}
+
+/** A relative spread (the band's whole width over the value) as `±x%`, or ''. */
+export function fmtSpread(s: number | null | undefined): string {
+	if (s === null || s === undefined) return '';
+	return `±${(s * 50).toLocaleString('en-US', { maximumFractionDigits: s * 50 < 0.01 ? 5 : 2 })}%`;
 }
 
 export function fmtPct(p: number | null): string {

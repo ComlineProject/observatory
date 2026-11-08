@@ -116,6 +116,7 @@
 	}
 
 	let ys = $derived((void src.rev, selected.map(([i]) => src.columns[i].slice() as (number | null)[])));
+	let spreads = $derived((void src.rev, selected.map(([i]) => src.spreads[i]?.slice() ?? null)));
 	let series = $derived<SeriesSpec[]>(selected.map(([i, s]) => ({ label: S.nameOf(metrics[i]), color: SERIES[s] })));
 	let marks = $derived([
 		...src.releaseIdx.map((i) => ({ x: i, label: versions[i].release! })),
@@ -214,12 +215,12 @@
 			{#if rangeSel === 'zoom'}<option value="zoom">zoomed</option>{/if}
 		</select>
 	</label>
-	<span class="muted">Drag on the chart to zoom, double-click to reset; click a point to open that version.</span>
+	<span class="muted">{#if src.spreads.some((x) => x)}Shaded bands: the run-to-run spread.{' '}{/if}Drag on the chart to zoom, double-click to reset; click a point to open that version.</span>
 </div>
 
 <div class="panel">
 	{#if selected.length === 0}<p class="muted">Select series in the table below.</p>{/if}
-	<Chart {xs} {ys} {series} {xLabel} {marks} {dots} xRange={range} {onrange} yLabel={unitLabel(unit)} {fmtY} {fmtV} onpick={(x) => ctx.open(x)} />
+	<Chart {xs} {ys} {series} {xLabel} {marks} {dots} {spreads} xRange={range} {onrange} yLabel={unitLabel(unit)} {fmtY} {fmtV} onpick={(x) => ctx.open(x)} />
 </div>
 
 <VirtualTable rows={filtered} height={300}>

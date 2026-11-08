@@ -176,7 +176,15 @@ Columnar, aligned to a list of version indexes into `index.versions`:
 ```
 
 `values[i][j]` is `metrics[i]` at version `versions[j]`, or `null` when that
-version doesn't have it. A cycle chunk holds that cycle's versions; the
+version doesn't have it.
+
+Bench only, and only when some metric of the source reports a `spread` in any
+version: `"spread": [ null, [0.0044, null, 0.008, 0.005], … ]`, aligned like
+`values`. `spread[i]` is `null` for a metric that never has one (in any
+version of the source); otherwise `spread[i][j]` is the spread at that
+version, or `null` where it's absent. Without any spread the key is left out.
+The site draws `value × (1 ± spread / 2)` as a band and shows `±spread/2` in
+the compare table. A cycle chunk holds that cycle's versions; the
 releases chunk holds the one `release` version of each released cycle (empty
 `versions` when there's no tag yet).
 
@@ -198,8 +206,9 @@ Input (format 1, today's `rust.bench.json`):
   `benches: { "<id>": { "<metric>": { "value", "runner"?, "spread"? } } }`. The
   collector accepts both. A format-2 metric becomes `metric` = `"<metric>"` when
   `runner` is absent or null, and `"<metric>@<runner>"` when it is present, so
-  values from different runners are never in one series. `spread` is not carried
-  yet.
+  values from different runners are never in one series. `spread` (the value's
+  run-to-run spread, relative: the whole width over the value, e.g. `0.0044`)
+  goes into the chunks' `spread` (below).
 - Shard: `{ "benches": { "<id>": { "<metric>": value } } }`.
 
 #### Ledgers

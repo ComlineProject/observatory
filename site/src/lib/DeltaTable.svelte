@@ -1,7 +1,7 @@
 <script lang="ts">
 	// A against B: one array lookup per metric over already-loaded chunks.
 	import VirtualTable from './VirtualTable.svelte';
-	import { fmtUnit, fmtPct, mark, type Metric, type Source, type Value } from './data.svelte';
+	import { fmtUnit, fmtPct, fmtSpread, mark, type Metric, type Source, type Value } from './data.svelte';
 
 	let {
 		src,
@@ -27,6 +27,8 @@
 		unit: string | null;
 		va: Value | undefined;
 		vb: Value | undefined;
+		sa: number | null | undefined;
+		sb: number | null | undefined;
 		d: number | null;
 		pct: number | null;
 		changed: boolean;
@@ -48,16 +50,19 @@
 			const col = src.columns[i];
 			const va = col[a],
 				vb = col[b];
+			const sp = src.spreads[i];
+			const sa = sp?.[a],
+				sb = sp?.[b];
 			if (typeof va === 'number' && typeof vb === 'number') {
 				const d = vb - va;
 				const pct = va !== 0 ? (d / Math.abs(va)) * 100 : d === 0 ? 0 : null;
 				if (threshold > 0 && (pct === null || Math.abs(pct) < threshold)) continue;
 				const dir = direction(m);
-				out.push({ name, unit: m.unit, va, vb, d, pct, changed: d !== 0, dir, score: pct === null ? (d === 0 ? 0 : Infinity) : pct * (dir || 1) });
+				out.push({ name, unit: m.unit, va, vb, sa, sb, d, pct, changed: d !== 0, dir, score: pct === null ? (d === 0 ? 0 : Infinity) : pct * (dir || 1) });
 			} else {
 				const changed = (va ?? null) !== (vb ?? null);
 				if (threshold > 0 && !changed) continue;
-				out.push({ name, unit: m.unit, va, vb, d: null, pct: null, changed, dir: 0, score: changed ? -1e300 : -Infinity });
+				out.push({ name, unit: m.unit, va, vb, sa, sb, d: null, pct: null, changed, dir: 0, score: changed ? -1e300 : -Infinity });
 			}
 		}
 		// Largest regression (largest increase) first; non-numeric changes after, unchanged last.
@@ -91,17 +96,24 @@
 		{#snippet row(r: Row)}
 			<tr>
 				<td title={r.name}>{r.name}</td>
-				<td class="num">{fmtUnit(r.va, r.unit)}</td>
-				<td class="num">{fmtUnit(r.vb, r.unit)}</td>
+				<td class="num">{fmtUnit(r.va, r.unit)}{#if r.sa != null}<span class="pm"> {fmtSpread(r.sa)}</span>{/if}</td>
+				<td class="num">{fmtUnit(r.vb, r.unit)}{#if r.sb != null}<span class="pm"> {fmtSpread(r.sb)}</span>{/if}</td>
 				<td class="num {cls(r.d, r.dir)}">{r.d === null ? (r.changed ? 'changed' : '') : fmtUnit(r.d, r.unit === '%' ? 'pp' : r.unit, true)}</td>
 				<td class="num {cls(r.pct, r.dir)}">{fmtPct(r.pct)}</td>
 			</tr>
 		{/snippet}
 	</VirtualTable>
 </div>
-<p class="muted small">Sorted by the largest regression first. Regressions are red, improvements green.</p>
+<p class="muted small">
+	Sorted by the largest regression first. Regressions are red, improvements green.{#if src.spreads.some((x) => x)}{' '}
+		± is half the reported run-to-run spread: a change inside it can be noise.{/if}
+</p>
 
 <style>
+	.pm {
+		color: var(--text-muted);
+		font-size: 11px;
+	}
 	.small {
 		font-size: 12px;
 	}

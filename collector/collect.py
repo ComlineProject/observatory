@@ -195,10 +195,12 @@ class Repo:
 
 class Norm:
     """A version's report, normalised: `rows` maps (key, metric) to
-    (value, unit, type); `shard` is the per-version file's content."""
+    (value, unit, type); `shard` is the per-version file's content; `spread`
+    maps (key, metric) to the value's run-to-run spread, where reported."""
 
-    def __init__(self, rows, shard, commit=None, toolchain=None, run=None):
+    def __init__(self, rows, shard, commit=None, toolchain=None, run=None, spread=None):
         self.rows, self.shard = rows, shard
+        self.spread = spread or {}
         self.commit, self.toolchain, self.run = commit, toolchain, run
 
 
@@ -213,7 +215,7 @@ def _num(v):
 def normalise_bench(rep):
     if not isinstance(rep, dict) or not isinstance(rep.get("benches"), dict):
         raise ValueError("no `benches` object")
-    rows, benches = {}, {}
+    rows, benches, spread = {}, {}, {}
     for bid, entry in rep["benches"].items():
         if not isinstance(entry, dict):
             raise ValueError(f"bench {bid} is not an object")
@@ -224,6 +226,8 @@ def normalise_bench(rep):
                 metric = name if runner in (None, "") else f"{name}@{runner}"
                 value = _num(v.get("value"))
                 unit = name
+                if _num(v.get("spread")) is not None:
+                    spread[(bid, metric)] = v["spread"]
             else:                    # format 1: {"ir": N}
                 metric = "instructions" if name == "ir" else name
                 value, unit = _num(v), metric
@@ -231,7 +235,7 @@ def normalise_bench(rep):
             rows[(bid, metric)] = (value, unit, "number")
         benches[bid] = out
     return Norm(rows, {"benches": benches}, _str_or_none(rep.get("commit")),
-                _str_or_none(rep.get("toolchain")), _str_or_none(rep.get("run")))
+                _str_or_none(rep.get("toolchain")), _str_or_none(rep.get("run")), spread)
 
 
 FUZZ_METRICS = (("executions", "executions"), ("corpus", "inputs"),
@@ -522,9 +526,15 @@ def publish_source(out, src, versions, tags, features, ledger=None):
                         "group": group, "param": param,
                         "better": better(src["kind"], metric, typ)})
 
+    spread_keys = {k for v in versions for k in v.norm.spread}
+
     def chunk(name, idxs):
         values = [[versions[j].norm.rows.get(m, (None,))[0] for j in idxs] for m in order]
-        return put(out, base, name, {"versions": idxs, "values": values})
+        doc = {"versions": idxs, "values": values}
+        if spread_keys:
+            doc["spread"] = [[versions[j].norm.spread.get(m) for j in idxs] if m in spread_keys else None
+                             for m in order]
+        return put(out, base, name, doc)
 
     index_versions = []
     for i, v in enumerate(versions):

@@ -558,6 +558,32 @@ class NormaliseTests(unittest.TestCase):
         self.assertEqual(n.rows, {("x", "wall@ci-a"): (5, "wall", "number")})
         self.assertEqual(n.shard, {"benches": {"x": {"wall@ci-a": 5}}})
 
+    def test_bench_format2_spread(self):
+        n = collect.normalise_bench({"benches": {"x": {
+            "wall_ns": {"value": 5, "runner": "gh", "spread": 0.01},
+            "instructions": {"value": 7}}}})
+        self.assertEqual(n.spread, {("x", "wall_ns@gh"): 0.01})
+
+    def test_spread_in_chunks(self):
+        import tempfile as tf
+        with tf.TemporaryDirectory() as out:
+            def v(i, spread):
+                rep = {"benches": {"x": {"instructions": {"value": i}, "wall_ns": dict(
+                    {"value": 10 * i, "runner": "gh"}, **({"spread": spread} if spread is not None else {}))}}}
+                return collect.Version(f"{i:040x}", f"{i:040x}", f"2026-01-0{i}T00:00:00Z",
+                                       collect.UNRELEASED, collect.normalise_bench(rep))
+            src = {"id": "s", "kind": "bench", "title": "S", "repo": "r", "repo_url": "u",
+                   "branch": "b", "path": "p"}
+            idx = json.loads((Path(out) / collect.publish_source(out, src, [v(1, 0.02), v(2, None)], {}, None)).read_text())
+            self.assertEqual([m["metric"] for m in idx["metrics"]], ["instructions", "wall_ns@gh"])
+            c = json.loads((Path(out) / idx["cycles"][0]["chunk"]).read_text())
+            self.assertEqual(c["spread"], [None, [0.02, None]])
+            # no spread anywhere: no `spread` key
+            plain = collect.normalise_bench({"benches": {"x": {"ir": 3}}})
+            idx = json.loads((Path(out) / collect.publish_source(out, dict(src, id="t"), [
+                collect.Version("a" * 40, "a" * 40, "2026-01-01T00:00:00Z", collect.UNRELEASED, plain)], {}, None)).read_text())
+            self.assertNotIn("spread", json.loads((Path(out) / idx["cycles"][0]["chunk"]).read_text()))
+
     def test_bench_format2_without_runner(self):
         n = collect.normalise_bench({"benches": {"x": {
             "instructions": {"value": 9, "spread": 0}, "instructions-opt": {"value": 3, "runner": None}}}})

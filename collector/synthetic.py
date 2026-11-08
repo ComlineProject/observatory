@@ -144,8 +144,10 @@ def build(out, scale, seed=7):
         for name, v in ts_base.items():
             if rng.random() < 0.10:
                 v = ts_base[name] = max(10, int(v * (1 + rng.uniform(-0.02, 0.025))))
-            benches[name] = {"instructions": {"value": v},
-                             "instructions-opt": {"value": max(10, int(v * opt[name]))}}
+            # Like the real TypeScript report: each tier's run-to-run spread.
+            benches[name] = {"instructions": {"value": v, "spread": round(rng.uniform(0, 4e-6), 6)},
+                             "instructions-opt": {"value": max(10, int(v * opt[name])),
+                                                  "spread": round(rng.uniform(0, 4e-6), 6)}}
         return {"commit": commit, "toolchain": "node 22 (synthetic)", "benches": benches}
 
     emit({"id": "syn-bench-ts", "kind": "bench", "title": "Synthetic TS bench", "repo": "syn",
