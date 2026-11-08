@@ -153,11 +153,10 @@ def build(out, scale, seed=7):
 
     # size / compile / coverage / ci, drawn after everything else so the
     # sources above don't move.
-    rows, tags = timeline(40 * scale, 12, rng)
+    rows, tags = timeline(20 * scale, 12, rng)
     arts = [f"{p}/{t}" for p in ("ffi", "cli", "wasm", "lib")[:4]
             for t in ("x86_64-linux-release", "aarch64-linux-release", "wasm32-release")]
-    arts = (arts * scale)[:12 * scale] if scale == 1 else \
-        [f"{a}/v{k}" for k in range(scale) for a in arts]
+    arts = [f"{a}/v{k}" if scale > 1 else a for k in range(scale) for a in arts[:6]]
     sz = {a: rng.randint(200_000, 9_000_000) for a in arts}
 
     def size(i, commit, date):
@@ -170,8 +169,8 @@ def build(out, scale, seed=7):
     emit({"id": "syn-size", "kind": "size", "title": "Synthetic size", "repo": "syn",
           "branch": "reports"}, rows, tags, size)
 
-    rows, tags = timeline(30 * scale, 14, rng)
-    crates = [f"crate-{c}" for c in range(15 * scale)]
+    rows, tags = timeline(20 * scale, 14, rng)
+    crates = [f"crate-{c}" for c in range(8 * scale)]
     ct = {c: rng.uniform(1, 40) for c in crates}
 
     def compile_(i, commit, date):
@@ -185,8 +184,8 @@ def build(out, scale, seed=7):
     emit({"id": "syn-compile", "kind": "compile", "title": "Synthetic compile", "repo": "syn",
           "branch": "reports"}, rows, tags, compile_)
 
-    rows, tags = timeline(30 * scale, 14, rng)
-    units = [f"unit-{u}" for u in range(10 * scale)]
+    rows, tags = timeline(20 * scale, 14, rng)
+    units = [f"unit-{u}" for u in range(6 * scale)]
     tot = {u: rng.randint(200, 5000) for u in units}
     cov = {u: rng.uniform(0.5, 0.95) for u in units}
 
@@ -208,7 +207,7 @@ def build(out, scale, seed=7):
           "branch": "reports"}, rows, tags, coverage)
 
     # ci: one version per run, each with a single workflow's values
-    rows, tags = timeline(300 * scale, 3, rng)
+    rows, tags = timeline(min(1000, 100 * scale), 3, rng)  # the collector keeps 1000 runs at most
     flows = [("ci", "push"), ("lint", "push"), ("fuzz", "schedule"), ("bench", "schedule"),
              ("docs", "push"), ("release", "workflow_dispatch")]
 
