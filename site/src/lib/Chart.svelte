@@ -16,7 +16,7 @@
 	// with setData, a changed series set with delSeries/addSeries.
 	import uPlot from 'uplot';
 	import 'uplot/dist/uPlot.min.css';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { mark } from './data.svelte';
 
 	let {
@@ -187,12 +187,12 @@
 		create();
 		const ro = new ResizeObserver(() => u?.setSize({ width: el.clientWidth, height }));
 		ro.observe(el);
-		const mq = matchMedia('(prefers-color-scheme: dark)');
-		const onTheme = () => theme++;
-		mq.addEventListener('change', onTheme);
+		// The header's toggle switches data-theme on <html>; redraw in its colours.
+		const mo = new MutationObserver(() => theme++);
+		mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 		return () => {
 			ro.disconnect();
-			mq.removeEventListener('change', onTheme);
+			mo.disconnect();
 			u?.destroy();
 			u = null;
 		};
@@ -200,7 +200,10 @@
 
 	$effect(() => {
 		// Recreate only when the colours change; everything else is setData.
-		if (theme > 0) create();
+		if (theme > 0) {
+			create();
+			untrack(apply);
+		}
 	});
 
 	$effect(() => {
