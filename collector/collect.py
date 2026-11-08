@@ -5,6 +5,7 @@ dataset described in DATA.md.  Python 3.11+, standard library plus `git`."""
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -14,6 +15,7 @@ import tomllib
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 FORMAT = 1
@@ -527,8 +529,169 @@ def now_utc():
     return t.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+SPARK_POINTS = 40
+
+
+def lttb(ys, n=SPARK_POINTS):
+    """Largest-triangle-three-buckets: `ys` (numbers or None) down to at most
+    `n` values. A series that already fits is returned unchanged (gaps kept);
+    a longer one is reduced over its non-null points, gaps dropped."""
+    if len(ys) <= n:
+        return list(ys)
+    pts = [(i, y) for i, y in enumerate(ys) if y is not None]
+    if len(pts) <= n:
+        return [y for _, y in pts]
+    out = [pts[0]]
+    every = (len(pts) - 2) / (n - 2)
+    a = 0
+    for i in range(n - 2):
+        lo, hi = int((i + 1) * every) + 1, min(int((i + 2) * every) + 1, len(pts))
+        nxt = pts[lo:hi] or [pts[-1]]
+        cx = sum(p[0] for p in nxt) / len(nxt)
+        cy = sum(p[1] for p in nxt) / len(nxt)
+        blo, bhi = int(i * every) + 1, int((i + 1) * every) + 1
+        ax, ay = pts[a]
+        best, best_area = blo, -1.0
+        for j in range(blo, bhi):
+            area = abs((ax - cx) * (pts[j][1] - ay) - (ax - pts[j][0]) * (cy - ay))
+            if area > best_area:
+                best, best_area = j, area
+        out.append(pts[best])
+        a = best
+    out.append(pts[-1])
+    return [y for _, y in out]
+
+
+def fmt_unit(v, unit):
+    """The site's fmtUnit (en-US, at most 2 decimals), for the card badges."""
+    if v is None:
+        return "\u2013"
+
+    def num(x):
+        return f"{Decimal(str(x)).quantize(Decimal('0.01'), ROUND_HALF_UP):,}".rstrip("0").rstrip(".")
+    if unit == "bytes":
+        a = abs(v)
+        d, u = (1e9, "GB") if a >= 1e9 else (1e6, "MB") if a >= 1e6 else (1e3, "KB") if a >= 1e3 else (1, "B")
+        return f"{num(v / d)} {u}"
+    if unit == "s":
+        return f"{num(v)} s"
+    if unit == "%":
+        return f"{num(v)}%"
+    return f"{v:,}"
+
+
+def _sum_at(cols, metrics, vs, pick):
+    out = []
+    for v in vs:
+        xs = [cols[i].get(v) for i, m in enumerate(metrics) if pick(m)]
+        xs = [x for x in xs if isinstance(x, (int, float))]
+        out.append(sum(xs) if xs else None)
+    return out
+
+
+def card_summary(index, cols):
+    """What the site's source card shows: latest version, a sparkline over the
+    newest cycle and a status line. `cols[i]` maps version index to the value
+    of `index["metrics"][i]` (the newest cycle's chunk)."""
+    vers, ms = index["versions"], index["metrics"]
+    newest = index["cycles"][-1]["id"]
+    vs = [i for i, v in enumerate(vers) if v["cycle"] == newest]
+    hi, last = vs[-1], len(vers) - 1
+    kind = index["kind"]
+    badge = None
+    row = lambda key, metric: next((i for i, m in enumerate(ms) if m["key"] == key and m["metric"] == metric), -1)  # noqa: E731
+    num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)  # noqa: E731
+
+    if kind == "bench":
+        label = "geometric mean, relative to the newest version"
+        spark = []
+        for v in vs:
+            tot, n = 0.0, 0
+            for i in range(len(ms)):
+                b, x = cols[i].get(hi), cols[i].get(v)
+                if num(b) and num(x) and b > 0 and x > 0:
+                    tot += math.log(x / b)
+                    n += 1
+            spark.append(math.exp(tot / n) if n else None)
+    elif kind == "fuzz":
+        label = "total executions"
+        spark = _sum_at(cols, ms, vs, lambda m: m["metric"] == "executions")
+        findings = fails = 0
+        for i, m in enumerate(ms):
+            x = cols[i].get(last)
+            if m["metric"] == "findings" and num(x):
+                findings += x
+            if m["type"] == "verdict" and x == "fail":
+                fails += 1
+        badge = ({"text": f"{findings} findings, {fails} failing properties", "cls": "s-fail"}
+                 if findings or fails else {"text": "no findings, all properties pass", "cls": "s-pass"})
+    elif kind == "size":
+        label = "total bytes, all artifacts"
+        spark = _sum_at(cols, ms, vs, lambda m: m["metric"] == "bytes")
+        t = _sum_at(cols, ms, [last], lambda m: m["metric"] == "bytes")[0]
+        badge = {"text": f"{fmt_unit(t, 'bytes')} in {len({m['key'] for m in ms})} artifacts", "cls": ""}
+    elif kind == "compile":
+        r = next((i for i, m in enumerate(ms) if m["key"] == "total"), -1)
+        label = "total build time"
+        spark = [cols[r].get(v) if r >= 0 else None for v in vs]
+        if r >= 0:
+            badge = {"text": f"{fmt_unit(cols[r].get(last), 's')} clean build", "cls": ""}
+    elif kind == "coverage":
+        r = row("total", "lines")
+        label = "total line coverage"
+        spark = [cols[r].get(v) if r >= 0 else None for v in vs]
+        if r >= 0:
+            badge = {"text": f"{fmt_unit(cols[r].get(last), '%')} of lines covered", "cls": ""}
+    elif kind == "ci":
+        verdicts = [i for i, m in enumerate(ms) if m["metric"] == "conclusion"]
+        W = 10
+        seq = []
+        for v in vs:
+            seq.append(next((x for x in (cols[i].get(v) for i in verdicts) if x in ("pass", "fail")), None))
+        label = f"pass rate, last {W} runs"
+        spark = []
+        for k in range(len(seq)):
+            w = [x for x in seq[max(0, k - W + 1):k + 1] if x]
+            spark.append(sum(x == "pass" for x in w) / len(w) * 100 if w else None)
+        judged = [x for x in seq if x]
+        passed = sum(x == "pass" for x in judged)
+        rate = passed / len(judged) * 100 if judged else None
+        rate_txt = "\u2013" if rate is None else f"{Decimal(rate).quantize(Decimal('1'), ROUND_HALF_UP)}%"
+        badge = {"text": f"{rate_txt} of {len(judged)} runs passed",
+                 "cls": "s-fail" if rate is not None and rate < 90 else "s-pass"}
+    else:
+        label = "supported cells"
+        spark = [sum(cols[i].get(v) == "supported" for i in range(len(ms))) for v in vs]
+        counts = {}
+        for i in range(len(ms)):
+            x = cols[i].get(last)
+            if isinstance(x, str):
+                counts[x] = counts.get(x, 0) + 1
+        badge = {"text": ", ".join(f"{counts[k]} {k}" for k in ("supported", "partial", "ignored", "unsupported") if counts.get(k)),
+                 "cls": "s-partial" if counts.get("unsupported") else "s-supported"}
+
+    lv = vers[last]
+    return {"label": lv["label"], "date": lv["date"], "release": lv["release"],
+            "spark": [None if y is None else round(y, 6) for y in lttb(spark)],
+            "sparkLabel": label, "badge": badge}
+
+
+def write_summary(out, entries):
+    """One small file with every ok source's card; returns its relative path."""
+    cards = {}
+    for e in entries:
+        if e["status"] != "ok":
+            continue
+        index = json.loads((Path(out) / e["index"]).read_text())
+        chunk = json.loads((Path(out) / index["cycles"][-1]["chunk"]).read_text())
+        cols = [dict(zip(chunk["versions"], row)) for row in chunk["values"]]
+        cards[e["id"]] = card_summary(index, cols)
+    return put(out, "sources", "summary", {"sources": cards})
+
+
 def write_manifest(out, entries):
-    manifest = {"format": FORMAT, "generated": now_utc(), "sources": entries}
+    manifest = {"format": FORMAT, "generated": now_utc(), "sources": entries,
+                "summary": write_summary(out, entries)}
     (Path(out) / "manifest.json").write_bytes(dumps(manifest))
 
 

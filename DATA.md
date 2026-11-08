@@ -61,6 +61,7 @@ from scratch on every run, so a new tag regroups older versions on its own.
 ```
 <out>/
   manifest.json                       # never hashed; the only fixed name
+  sources/summary.<hash>.json
   sources/<id>/index.<hash>.json
   sources/<id>/releases.<hash>.json
   sources/<id>/cycle-<cycle>.<hash>.json
@@ -78,6 +79,7 @@ byte-identical output and the same names. Paths inside files are relative to
 {
   "format": 1,
   "generated": "2026-11-08T12:00:00Z",
+  "summary": "sources/summary.9c41….json",
   "sources": [
     { "id": "runtime-bench", "kind": "bench", "title": "Rust runtime",
       "repo": "runtime", "matrix": null,
@@ -92,6 +94,33 @@ byte-identical output and the same names. Paths inside files are relative to
 A source that fails for any reason (unreachable, no versions, a report that
 doesn't parse) is `"unpublished"` with a `reason`; the run still succeeds. The
 collector exits non-zero only on a bad `sources.toml` or `--strict`.
+
+`summary` is the path of the summary file (below); the site reads it, and
+only it, for the overview and the `/<kind>/` index pages.
+
+### `summary.<hash>.json`
+
+What each source's card shows, so those pages don't load any source's chunks.
+One entry per `ok` source (unpublished ones have none), keyed by source id:
+
+```json
+{ "sources": { "runtime-bench": {
+    "label": "unreleased-dev.30", "date": "2026-11-07T10:18:12Z", "release": null,
+    "spark": [1.4, 1.38, 1.2, 1.0], "sparkLabel": "geometric mean, relative to the newest version",
+    "badge": { "text": "no findings, all properties pass", "cls": "s-pass" } } } }
+```
+
+- `label`, `date`, `release`: the latest version's (the last in `versions`).
+- `spark`: the series over the **newest cycle**, one value per version, with
+  `null` for a gap; when it has more than 40 points it is reduced to 40 by
+  LTTB over its non-null points. Per kind, and `sparkLabel` says which:
+  bench = geometric mean of each metric relative to its value at the newest
+  version; fuzz = total `executions`; size = total `bytes`; compile = the
+  `total` row; coverage = `total`/`lines`; ci = pass rate over the last 10
+  runs (percent); conformance = number of `supported` cells.
+- `badge`: the status line, `{ "text", "cls" }` (`cls` is a swatch class, or
+  `""` for none), computed at the latest version; `null` for bench, or when
+  the row it needs is missing.
 
 ### `index.<hash>.json`
 
