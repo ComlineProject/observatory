@@ -1,0 +1,40 @@
+name: Publish a report
+description: >
+  Commit one or more JSON reports to the repository's `reports` branch, where
+  the Observatory reads their history. Each report must carry the `commit` it
+  measured; one older than the report already published is skipped.
+
+# The calling job needs `permissions: contents: write` and a checkout with
+# `fetch-depth: 0` (the skip check walks history). Call it only from `main`,
+# a schedule or a manual run, never from a pull request; pass `dry-run: true`
+# elsewhere to see the commit without pushing. Details: publish-report.py.
+
+inputs:
+  reports:
+    description: Report files, space-separated; each lands at the branch root under its own name.
+    required: true
+  branch:
+    description: The branch to publish to.
+    default: reports
+  readme:
+    description: A file to publish as the branch's README.md.
+    default: ''
+  dry-run:
+    description: Build the commit and print it, but push nothing.
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        REPORTS: ${{ inputs.reports }}
+        BRANCH: ${{ inputs.branch }}
+        README: ${{ inputs.readme }}
+        DRY_RUN: ${{ inputs.dry-run }}
+      run: |
+        args=(--branch "$BRANCH")
+        [ -n "$README" ] && args+=(--readme "$README")
+        [ "$DRY_RUN" = true ] && args+=(--dry-run)
+        # shellcheck disable=SC2086 # reports are space-separated on purpose
+        python3 "$GITHUB_ACTION_PATH/publish-report.py" "${args[@]}" $REPORTS

@@ -9,6 +9,16 @@ Design: [the project dashboard proposal](https://comlineproject.github.io/docs/p
 - **Producers** are the other repositories' CI. Each commits a JSON report to
   its own `reports` branch (or to `main`, for the committed conformance
   matrices). Every commit that changes a report is one version.
+  They publish with this repository's action:
+
+  ```yaml
+  - uses: ComlineProject/observatory/.github/actions/publish-report@v1
+    with:
+      reports: typescript.bench.json
+  ```
+
+  (`permissions: contents: write`, a checkout with `fetch-depth: 0`, and never
+  from a pull request: see [`action.yml`](.github/actions/publish-report/action.yml).)
 - **`collector/`** (Python standard library) walks those histories and writes
   the dataset described in [`DATA.md`](DATA.md). What it reads is listed in
   [`sources.toml`](sources.toml).

@@ -28,6 +28,14 @@ repo = "runtime"
 branch = "reports"
 path = "rust.bench.json"
 
+[[source]]
+id = "typescript-bench"
+kind = "bench"
+title = "TypeScript runtime"
+repo = "comline-typescript"
+branch = "reports"
+path = "typescript.bench.json"
+
 # Fuzzing
 
 [[source]]
@@ -37,6 +45,14 @@ title = "Rust runtime"
 repo = "runtime"
 branch = "reports"
 path = "rust.fuzz.json"
+
+[[source]]
+id = "typescript-fuzz"
+kind = "fuzz"
+title = "TypeScript runtime"
+repo = "comline-typescript"
+branch = "reports"
+path = "typescript.fuzz.json"
 
 # Conformance
 
