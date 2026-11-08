@@ -16,7 +16,7 @@ tag = '^v(?P<version>\d+\.\d+\.\d+(?:[-+].*)?)$'
 
 [[source]]
 id = "runtime-bench"                            # [a-z0-9-]+, unique
-kind = "bench"                                  # bench | fuzz | conformance
+kind = "bench"                                  # bench | fuzz | conformance | size | compile | coverage | ci
 title = "Rust runtime"
 repo = "runtime"
 branch = "reports"
@@ -202,6 +202,68 @@ Input, either shape:
 a point in time: each source at its newest version on or before that date.
 Labels can repeat across sources, so the site's URLs name a version as
 `<source id>:<label>` (`?a=codegen:unreleased-dev.1`).
+
+### `size`
+
+Input (`<name>.size.json`):
+`{ "format": 1, "commit", "toolchain", "run", "artifacts": { "<id>": { "bytes": N, "gzip_bytes": N? } } }`.
+`<id>` names the artifact and how it was built, path-like
+(`ffi/cdylib/x86_64-linux-release`, `ffi/wasm32-release`, `cli/x86_64-linux-release`).
+
+- Metric rows: `key` = artifact id, `metric` ∈ `bytes`, `gzip_bytes`, `unit` =
+  `"bytes"`, `type` = `"number"`. Lower is better.
+- Shard: `{ "artifacts": { "<id>": { "bytes", "gzip_bytes" } } }`.
+
+### `compile`
+
+Input (`<name>.compile.json`):
+`{ "format": 1, "commit", "toolchain", "run", "runner", "profile", "total_seconds": x, "units": { "<crate>": { "seconds": x } } }`
+(from `cargo build --timings=json`, clean build of the workspace).
+
+- Metric rows: `key` = crate, plus `key` = `total` for `total_seconds`;
+  `metric` = `"seconds@<runner>"` (wall time is per runner, like bench format
+  2), `unit` = `"s"`, `type` = `"number"`. Lower is better.
+- Shard: the input without the envelope fields.
+
+### `coverage`
+
+Input (`<name>.coverage.json`):
+`{ "format": 1, "commit", "toolchain", "run", "tool", "totals": C, "units": { "<unit>": C } }`
+where `C` = `{ "lines": { "covered", "total" }, "functions": { … }?, "branches": { … }? }`
+and a unit is a crate (Rust) or a top-level source directory (TypeScript).
+
+- Metric rows: `key` = unit, plus `key` = `total` for `totals`; `metric` ∈
+  `lines`, `functions`, `branches` (those present); value = covered ÷ total ×
+  100, rounded to 2 decimals (`null` when total is 0); `unit` = `"%"`, `type` =
+  `"number"`. **Higher is better.**
+- Shard: `{ "totals": C, "units": { … } }` with the raw counts.
+
+### `ci`
+
+No producer and no report file: the collector reads workflow runs from the
+GitHub REST API (`GET /repos/{owner}/{repo}/actions/runs`, token from
+`GITHUB_TOKEN` or `GH_TOKEN` when set). A source is
+`{ id, kind = "ci", title, repo }`.
+
+- **Versions** are completed runs on the repo's `default_branch` whose event is
+  `push`, `schedule` or `workflow_dispatch`, newest 1000 at most. `id` =
+  `run-<run id>`, `commit` = the run's `head_sha`, `date` = `run_started_at`
+  (else `created_at`), `run` = its `html_url`; cycles and labels as for every
+  version.
+- Metric rows: `key` = workflow name; `metric` ∈ `duration_s` (`updated_at` −
+  `run_started_at`; `unit` `"s"`), `attempts` (`run_attempt`; a value above 1
+  is a rerun), `conclusion` (`type` `"verdict"`: `success` → `"pass"`,
+  `failure` / `timed_out` → `"fail"`, anything else → `null`). A version only
+  has values for its own workflow; the rest are `null`.
+- Shard: `{ "workflow", "event", "conclusion", "run_attempt", "duration_s", "html_url" }`.
+- Without a token the API allows 60 requests an hour, which is enough for a
+  local run of a few sources; CI passes the job's token.
+
+### Which way is better
+
+The site needs to know whether a rise is good or bad: `coverage`, and fuzz
+`executions` and `corpus`, are higher-is-better; every other number is
+lower-is-better.
 
 ## Running
 
