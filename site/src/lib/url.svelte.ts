@@ -27,7 +27,7 @@ export class UrlState {
 			if (v === null || v === '') u.searchParams.delete(k);
 			else u.searchParams.set(k, v);
 		}
-		const q = u.searchParams.toString().replaceAll('%2C', ',').replaceAll('%3A', ':');
+		const q = u.searchParams.toString().replaceAll('%2C', ',').replaceAll('%3A', ':').replaceAll('%2F', '/').replaceAll('%7E', '~').replaceAll('%40', '@');
 		goto(u.pathname + (q ? '?' + q : ''), { keepFocus: true, noScroll: true });
 	}
 }

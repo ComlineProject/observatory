@@ -45,6 +45,21 @@ FEATURES = {"features": [{"id": "envelope", "title": "Envelope", "description": 
                          {"id": "handshake", "title": "Handshake", "description": "d2"}]}
 
 
+LEDGER = '''
+[[accepted]]
+pr = 5
+bench = "a/b/16"
+max_percent = 2.5
+reason = "be right (#4)"
+
+[[removed]]
+pr = 99
+bench = "solo"
+renamed_to = "solo2"
+reason = "renamed"
+'''
+
+
 NEW_SOURCES = '''
 [[source]]
 id = "size"
@@ -94,11 +109,12 @@ class Fixture(unittest.TestCase):
         c2 = commit(w, {"src.txt": "2", "wire.json": wire(
             {"envelope": {"state": "supported", "proven_by": ["b", "a"]}})}, "c2", "2026-01-02T10:00:00+00:00")
         git(w, "tag", "v0.1.0", date="2026-01-03T10:00:00+00:00")
-        c3 = commit(w, {"src.txt": "3"}, "c3", "2026-01-04T10:00:00+00:00")
+        c3 = commit(w, {"src.txt": "3"}, "c3 (#5)", "2026-01-04T10:00:00+00:00")
         c4 = commit(w, {"src.txt": "4"}, "c4", "2026-01-05T10:00:00+00:00")
         commit(w, {"wire.json": wire({"envelope": {"state": "partial", "proven_by": ["a"], "note": "n"},
                                       "handshake": {"state": "ignored", "failing": ["z", "y"]}})},
                "wire2", "2026-01-06T12:00:00+00:00")
+        commit(w, {"ledger.toml": LEDGER}, "Merge pull request #6 from x/ledger", "2026-01-06T13:00:00+00:00")
         git(w, "checkout", "-q", "--orphan", "reports")
         git(w, "rm", "-rqf", ".")
         r1 = commit(w, {"rust.bench.json": bench(c1, a__b__16=10, a__b__256=20, solo=5)}, "r1", "2026-01-02T08:00:00+00:00")
@@ -151,6 +167,7 @@ title = "Bench"
 repo = "r"
 branch = "reports"
 path = "rust.bench.json"
+ledger = "ledger.toml"
 
 [[source]]
 id = "fuzz"
@@ -260,6 +277,19 @@ class RunTests(Fixture):
         self.assertEqual((m["solo"]["group"], m["solo"]["param"]), (None, None))
         self.assertEqual(m["solo"]["unit"], "instructions")
         self.assertEqual(m["solo"]["type"], "number")
+
+    def test_ledger(self):
+        _, idx = self.load(self.out, "bench")
+        self.assertEqual(idx["ledger"], [
+            {"kind": "accepted", "pr": 5, "bench": "a/b/16", "max_percent": 2.5,
+             "renamed_to": None, "reason": "be right (#4)", "version": 2},
+            {"kind": "removed", "pr": 99, "bench": "solo", "max_percent": None,
+             "renamed_to": "solo2", "reason": "renamed", "version": None}])
+        self.assertIsNone(self.load(self.out, "fuzz")[1]["ledger"])
+
+    def test_ledger_only_on_bench(self):
+        p = Path(self.sources(extra='[[source]]\nid = "f2"\nkind = "fuzz"\ntitle = "F"\nrepo = "r"\nbranch = "reports"\npath = "f.json"\nledger = "x.toml"\n', name="bad-ledger.toml"))
+        self.assertEqual(collect.main(["--sources", str(p), "--out", str(self.root / "o-bad")]), 2)
 
     def test_bench_shard(self):
         _, idx = self.load(self.out, "bench")
@@ -527,6 +557,32 @@ class NormaliseTests(unittest.TestCase):
         n = collect.normalise_bench({"benches": {"x": {"wall": {"value": 5, "runner": "ci-a", "spread": 1}}}})
         self.assertEqual(n.rows, {("x", "wall@ci-a"): (5, "wall", "number")})
         self.assertEqual(n.shard, {"benches": {"x": {"wall@ci-a": 5}}})
+
+    def test_bench_format2_spread(self):
+        n = collect.normalise_bench({"benches": {"x": {
+            "wall_ns": {"value": 5, "runner": "gh", "spread": 0.01},
+            "instructions": {"value": 7}}}})
+        self.assertEqual(n.spread, {("x", "wall_ns@gh"): 0.01})
+
+    def test_spread_in_chunks(self):
+        import tempfile as tf
+        with tf.TemporaryDirectory() as out:
+            def v(i, spread):
+                rep = {"benches": {"x": {"instructions": {"value": i}, "wall_ns": dict(
+                    {"value": 10 * i, "runner": "gh"}, **({"spread": spread} if spread is not None else {}))}}}
+                return collect.Version(f"{i:040x}", f"{i:040x}", f"2026-01-0{i}T00:00:00Z",
+                                       collect.UNRELEASED, collect.normalise_bench(rep))
+            src = {"id": "s", "kind": "bench", "title": "S", "repo": "r", "repo_url": "u",
+                   "branch": "b", "path": "p"}
+            idx = json.loads((Path(out) / collect.publish_source(out, src, [v(1, 0.02), v(2, None)], {}, None)).read_text())
+            self.assertEqual([m["metric"] for m in idx["metrics"]], ["instructions", "wall_ns@gh"])
+            c = json.loads((Path(out) / idx["cycles"][0]["chunk"]).read_text())
+            self.assertEqual(c["spread"], [None, [0.02, None]])
+            # no spread anywhere: no `spread` key
+            plain = collect.normalise_bench({"benches": {"x": {"ir": 3}}})
+            idx = json.loads((Path(out) / collect.publish_source(out, dict(src, id="t"), [
+                collect.Version("a" * 40, "a" * 40, "2026-01-01T00:00:00Z", collect.UNRELEASED, plain)], {}, None)).read_text())
+            self.assertNotIn("spread", json.loads((Path(out) / idx["cycles"][0]["chunk"]).read_text()))
 
     def test_bench_format2_without_runner(self):
         n = collect.normalise_bench({"benches": {"x": {

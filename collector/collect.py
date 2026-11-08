@@ -26,6 +26,7 @@ MATRICES = ("wire", "codegen")
 STATES = ("supported", "partial", "ignored", "unsupported")
 UNRELEASED = "unreleased"
 INT_RE = re.compile(r"^(0|[1-9][0-9]*)$")
+PR_RE = re.compile(r"^Merge pull request #(\d+) |\(#(\d+)\)$")
 
 
 class SourceError(Exception):
@@ -166,6 +167,25 @@ class Repo:
             res.append((h, utc(d)))
         return res
 
+    def contains(self, ancestor, commit):
+        """Whether `commit`'s history contains `ancestor`."""
+        p = self.git("merge-base", "--is-ancestor", ancestor, commit, check=False)
+        if p.returncode not in (0, 1):
+            raise SourceError(f"git merge-base failed in {self.name}")
+        return p.returncode == 0
+
+    def pr_commits(self, ref):
+        """{pull request number: the first-parent commit that merged it} on `ref`,
+        from "Merge pull request #N" or a trailing "(#N)" in the subject."""
+        out = self.git("log", "--first-parent", "--format=%H%x09%s", ref).stdout.decode()
+        res = {}
+        for line in out.splitlines():
+            h, _, subj = line.partition("\t")
+            m = PR_RE.search(subj)
+            if m:
+                res.setdefault(int(m.group(1) or m.group(2)), h)
+        return res
+
     def show(self, rev, path):
         p = self.git("show", f"{rev}:{path}", check=False)
         return p.stdout if p.returncode == 0 else None
@@ -175,10 +195,12 @@ class Repo:
 
 class Norm:
     """A version's report, normalised: `rows` maps (key, metric) to
-    (value, unit, type); `shard` is the per-version file's content."""
+    (value, unit, type); `shard` is the per-version file's content; `spread`
+    maps (key, metric) to the value's run-to-run spread, where reported."""
 
-    def __init__(self, rows, shard, commit=None, toolchain=None, run=None):
+    def __init__(self, rows, shard, commit=None, toolchain=None, run=None, spread=None):
         self.rows, self.shard = rows, shard
+        self.spread = spread or {}
         self.commit, self.toolchain, self.run = commit, toolchain, run
 
 
@@ -193,7 +215,7 @@ def _num(v):
 def normalise_bench(rep):
     if not isinstance(rep, dict) or not isinstance(rep.get("benches"), dict):
         raise ValueError("no `benches` object")
-    rows, benches = {}, {}
+    rows, benches, spread = {}, {}, {}
     for bid, entry in rep["benches"].items():
         if not isinstance(entry, dict):
             raise ValueError(f"bench {bid} is not an object")
@@ -204,6 +226,8 @@ def normalise_bench(rep):
                 metric = name if runner in (None, "") else f"{name}@{runner}"
                 value = _num(v.get("value"))
                 unit = name
+                if _num(v.get("spread")) is not None:
+                    spread[(bid, metric)] = v["spread"]
             else:                    # format 1: {"ir": N}
                 metric = "instructions" if name == "ir" else name
                 value, unit = _num(v), metric
@@ -211,7 +235,7 @@ def normalise_bench(rep):
             rows[(bid, metric)] = (value, unit, "number")
         benches[bid] = out
     return Norm(rows, {"benches": benches}, _str_or_none(rep.get("commit")),
-                _str_or_none(rep.get("toolchain")), _str_or_none(rep.get("run")))
+                _str_or_none(rep.get("toolchain")), _str_or_none(rep.get("run")), spread)
 
 
 FUZZ_METRICS = (("executions", "executions"), ("corpus", "inputs"),
@@ -451,7 +475,27 @@ def split_key(key):
     return group, (int(last) if INT_RE.match(last) else None)
 
 
-def publish_source(out, src, versions, tags, features):
+def normalise_ledger(doc):
+    """The accepted-regressions ledger's entries, without their version."""
+    if not isinstance(doc, dict):
+        raise ValueError("not a table")
+    out = []
+    for kind in ("accepted", "removed"):
+        entries = doc.get(kind, [])
+        if not isinstance(entries, list):
+            raise ValueError(f"`{kind}` is not an array of tables")
+        for e in entries:
+            if not isinstance(e, dict) or not isinstance(e.get("bench"), str) \
+                    or not isinstance(e.get("pr"), int) or isinstance(e.get("pr"), bool):
+                raise ValueError(f"a [[{kind}]] entry without `pr` or `bench`")
+            out.append({"kind": kind, "pr": e["pr"], "bench": e["bench"],
+                        "max_percent": _num(e.get("max_percent")) if kind == "accepted" else None,
+                        "renamed_to": _str_or_none(e.get("renamed_to")) if kind == "removed" else None,
+                        "reason": _str_or_none(e.get("reason"))})
+    return out
+
+
+def publish_source(out, src, versions, tags, features, ledger=None):
     """Label `versions` (already in order, `.cycle` set), write the source's
     files under `<out>/sources/<id>/`, return the index's relative path.
 
@@ -482,9 +526,15 @@ def publish_source(out, src, versions, tags, features):
                         "group": group, "param": param,
                         "better": better(src["kind"], metric, typ)})
 
+    spread_keys = {k for v in versions for k in v.norm.spread}
+
     def chunk(name, idxs):
         values = [[versions[j].norm.rows.get(m, (None,))[0] for j in idxs] for m in order]
-        return put(out, base, name, {"versions": idxs, "values": values})
+        doc = {"versions": idxs, "values": values}
+        if spread_keys:
+            doc["spread"] = [[versions[j].norm.spread.get(m) for j in idxs] if m in spread_keys else None
+                             for m in order]
+        return put(out, base, name, doc)
 
     index_versions = []
     for i, v in enumerate(versions):
@@ -513,7 +563,8 @@ def publish_source(out, src, versions, tags, features):
              "branch": src["branch"], "path": src["path"],
              "matrix": src.get("matrix"), "versions": index_versions,
              "cycles": cycles, "releases": releases, "metrics": metrics,
-             "features": features if src["kind"] == "conformance" else None}
+             "features": features if src["kind"] == "conformance" else None,
+             "ledger": ledger}
     return put(out, base, "index", index)
 
 
@@ -745,6 +796,8 @@ def load_config(path):
             raise ConfigError(f"source {s['id']}: unknown repo {s['repo']!r}")
         if s["kind"] == "conformance" and s.get("matrix") not in MATRICES:
             raise ConfigError(f"source {s['id']}: `matrix` must be wire or codegen")
+        if "ledger" in s and (s["kind"] != "bench" or not isinstance(s["ledger"], str)):
+            raise ConfigError(f"source {s['id']}: `ledger` is a path, on bench sources only")
         f = s.get("features")
         if f is not None and (f.get("repo") not in repos or "path" not in f):
             raise ConfigError(f"source {s['id']}: bad `features`")
@@ -794,6 +847,36 @@ class Collector:
             except (ValueError, KeyError, TypeError):
                 pass
         return {}
+
+    def ledger_for(self, src, versions):
+        """The source's ledger (DATA.md), each entry with the index of the first
+        version whose measured commit contains the pull request; None when the
+        source has no `ledger`."""
+        if "ledger" not in src:
+            return None
+        repo = self.repo(src["repo"])
+        branch = self.cfgs[src["repo"]]["default_branch"]
+        ref = repo.ref(branch)
+        raw = repo.show(ref, src["ledger"])
+        if raw is None:
+            warn(f"{src['id']}: ledger {src['ledger']} not found on {branch}")
+            return []
+        try:
+            entries = normalise_ledger(tomllib.loads(raw.decode("utf-8")))
+        except (ValueError, UnicodeDecodeError, tomllib.TOMLDecodeError) as e:
+            warn(f"{src['id']}: ledger doesn't parse: {e}")
+            return []
+        prs = repo.pr_commits(ref)
+        for e in entries:
+            e["version"] = None
+            merged = prs.get(e["pr"])
+            if merged is None:
+                continue
+            for i, v in enumerate(versions):
+                if repo.resolve_commit(v.commit) and repo.contains(merged, v.commit):
+                    e["version"] = i
+                    break
+        return entries
 
     def collect_ci(self, src, out):
         if not self.network:
@@ -863,9 +946,10 @@ class Collector:
         versions = [versions[i] for i in order]
         reports = [reports[i] for i in order]
         features = self.features_for(src, reports) if src["kind"] == "conformance" else None
+        ledger = self.ledger_for(src, versions) if src["kind"] == "bench" else None
         tags = {t.version: t for t in repo.tags()}
         meta = dict(src, repo_url=self.cfgs[src["repo"]]["url"])
-        return publish_source(out, meta, versions, tags, features)
+        return publish_source(out, meta, versions, tags, features, ledger)
 
 
 def run(sources_path, out, cache, locals_, strict, network=True):

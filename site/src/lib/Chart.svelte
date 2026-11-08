@@ -8,6 +8,15 @@
 		x: number;
 		label: string;
 	}
+	/** A highlighted point: series `s` (index into `series`) at `x`. */
+	export interface Dot {
+		x: number;
+		s: number;
+		/** A CSS custom property name for the ring. */
+		color: string;
+		/** Filled (true) or a hollow ring. */
+		fill: boolean;
+	}
 	let firstDraw = false;
 </script>
 
@@ -25,6 +34,8 @@
 		series,
 		xLabel = (x: number) => String(x),
 		marks = [],
+		dots = [],
+		spreads = [],
 		xRange = null,
 		logX = false,
 		logY = false,
@@ -41,6 +52,9 @@
 		series: SeriesSpec[];
 		xLabel?: (x: number) => string;
 		marks?: XMark[];
+		dots?: Dot[];
+		/** Per series, each value's relative spread: drawn as a band of value × (1 ± spread / 2). */
+		spreads?: ((number | null | undefined)[] | null)[];
 		xRange?: [number, number] | null;
 		logX?: boolean;
 		logY?: boolean;
@@ -108,6 +122,62 @@
 		ctx.restore();
 	}
 
+	function drawBands(u: uPlot) {
+		if (!spreads.some((s) => s)) return;
+		const ctx = u.ctx;
+		ctx.save();
+		ctx.beginPath();
+		ctx.rect(u.bbox.left, u.bbox.top, u.bbox.width, u.bbox.height);
+		ctx.clip();
+		ctx.globalAlpha = 0.2;
+		spreads.forEach((sp, k) => {
+			const ys = u.data[k + 1];
+			if (!sp || !ys || !u.series[k + 1]?.show) return;
+			ctx.fillStyle = cssVar(series[k].color);
+			// One polygon per run of points that have both a value and a spread.
+			let run: number[] = [];
+			const flush = () => {
+				if (run.length) {
+					ctx.beginPath();
+					for (const i of run) ctx.lineTo(u.valToPos(i, 'x', true), u.valToPos((ys[i] as number) * (1 + sp[i]! / 2), 'y', true));
+					for (const i of run.reverse()) ctx.lineTo(u.valToPos(i, 'x', true), u.valToPos((ys[i] as number) * (1 - sp[i]! / 2), 'y', true));
+					ctx.closePath();
+					ctx.fill();
+				}
+				run = [];
+			};
+			for (let i = 0; i < ys.length; i++) {
+				if (ys[i] != null && sp[i] != null) run.push(i);
+				else flush();
+			}
+			flush();
+		});
+		ctx.restore();
+	}
+
+	function drawDots(u: uPlot) {
+		if (!dots.length) return;
+		const ctx = u.ctx;
+		const r = 6 * devicePixelRatio;
+		ctx.save();
+		ctx.lineWidth = 2 * devicePixelRatio;
+		for (const d of dots) {
+			const v = u.data[d.s + 1]?.[d.x];
+			if (v == null || !u.series[d.s + 1]?.show) continue;
+			const x = u.valToPos(d.x, 'x', true);
+			const y = u.valToPos(v as number, 'y', true);
+			if (x < u.bbox.left || x > u.bbox.left + u.bbox.width) continue;
+			const c = cssVar(d.color);
+			ctx.beginPath();
+			ctx.arc(x, y, r, 0, 2 * Math.PI);
+			ctx.fillStyle = d.fill ? c : cssVar('--surface-1');
+			ctx.fill();
+			ctx.strokeStyle = d.fill ? cssVar('--surface-1') : c;
+			ctx.stroke();
+		}
+		ctx.restore();
+	}
+
 	function opts(): uPlot.Options {
 		const ink = cssVar('--text-muted');
 		const grid = cssVar('--grid');
@@ -142,9 +212,11 @@
 			cursor: { drag: { x: !logX, y: false }, points: { size: 9 } },
 			series: [{ label: logX ? 'size' : 'version', value: (_u, v) => (v == null ? '–' : xLabel(v)) }],
 			hooks: {
+				drawAxes: [drawBands],
 				draw: [
 					(u) => {
 						drawMarks(u);
+						drawDots(u);
 						if (!firstDraw && u.data[0]?.length) {
 							firstDraw = true;
 							mark('chart-rendered');
@@ -216,7 +288,7 @@
 	});
 
 	$effect(() => {
-		void [xs, ys, series, xRange, marks];
+		void [xs, ys, series, xRange, marks, dots, spreads];
 		apply();
 	});
 </script>
