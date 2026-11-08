@@ -185,8 +185,8 @@ Input, either shape:
   `{ features: [{id,title,description}], generators: [{ name, support: { "<feature>": { state, proven_by, note, since, tracking, failing? } } }] }`;
 - a runtime report: `{ runtime, support: { "<feature>": { state, proven_by, note?, tracking?, failing? } } }`.
 
-- Metric rows: `key` = `<subject>/<feature>` (subject = generator `name` or
-  `runtime`), `metric` = `"state"`, `type` = `"state"`, values `"supported"` /
+- Metric rows: `key` = `<subject>/<feature>` (subject = the generator's `name`,
+  or the value of the report's `runtime` field, e.g. `rust`), `metric` = `"state"`, `type` = `"state"`, values `"supported"` /
   `"partial"` / `"ignored"` / `"unsupported"` / `null` (also for any other
   value).
 - generation's own `features` list (from the latest version) fills `index.features` there; a runtime
@@ -194,6 +194,12 @@ Input, either shape:
 - Shard: `{ "subjects": { "<subject>": { "<feature>": { state, proven_by, note, tracking, failing } } } }`
   with absent fields as `null` and `proven_by` / `failing` as sorted lists
   (`null` when absent). `since` is not carried.
+
+**A matrix combines sources.** The site shows every source with the same
+`matrix` as one table. Their histories are separate, so a matrix "version" is
+a point in time: each source at its newest version on or before that date.
+Labels can repeat across sources, so the site's URLs name a version as
+`<source id>:<label>` (`?a=codegen:unreleased-dev.1`).
 
 ## Running
 
