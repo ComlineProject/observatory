@@ -207,7 +207,7 @@ def build(out, scale, seed=7):
           "branch": "reports"}, rows, tags, coverage)
 
     # ci: one version per run, each with a single workflow's values
-    rows, tags = timeline(min(1000, 100 * scale), 3, rng)  # the collector keeps 1000 runs at most
+    rows, tags = timeline(min(1000, 60 * scale), 3, rng)  # the collector keeps 1000 runs at most
     flows = [("ci", "push"), ("lint", "push"), ("fuzz", "schedule"), ("bench", "schedule"),
              ("docs", "push"), ("release", "workflow_dispatch")]
 
