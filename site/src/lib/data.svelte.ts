@@ -83,6 +83,17 @@ export interface Index {
 	releases: string;
 	metrics: Metric[];
 	features: Record<string, { title: string; description: string }> | null;
+	/** Bench only: the accepted-regressions ledger (DATA.md "Ledgers"). */
+	ledger?: LedgerEntry[] | null;
+}
+export interface LedgerEntry {
+	kind: 'accepted' | 'removed';
+	pr: number;
+	bench: string;
+	max_percent: number | null;
+	renamed_to: string | null;
+	reason: string | null;
+	version: number | null;
 }
 interface Chunk {
 	versions: number[];

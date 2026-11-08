@@ -8,6 +8,15 @@
 		x: number;
 		label: string;
 	}
+	/** A highlighted point: series `s` (index into `series`) at `x`. */
+	export interface Dot {
+		x: number;
+		s: number;
+		/** A CSS custom property name for the ring. */
+		color: string;
+		/** Filled (true) or a hollow ring. */
+		fill: boolean;
+	}
 	let firstDraw = false;
 </script>
 
@@ -25,6 +34,7 @@
 		series,
 		xLabel = (x: number) => String(x),
 		marks = [],
+		dots = [],
 		xRange = null,
 		logX = false,
 		logY = false,
@@ -41,6 +51,7 @@
 		series: SeriesSpec[];
 		xLabel?: (x: number) => string;
 		marks?: XMark[];
+		dots?: Dot[];
 		xRange?: [number, number] | null;
 		logX?: boolean;
 		logY?: boolean;
@@ -108,6 +119,29 @@
 		ctx.restore();
 	}
 
+	function drawDots(u: uPlot) {
+		if (!dots.length) return;
+		const ctx = u.ctx;
+		const r = 6 * devicePixelRatio;
+		ctx.save();
+		ctx.lineWidth = 2 * devicePixelRatio;
+		for (const d of dots) {
+			const v = u.data[d.s + 1]?.[d.x];
+			if (v == null || !u.series[d.s + 1]?.show) continue;
+			const x = u.valToPos(d.x, 'x', true);
+			const y = u.valToPos(v as number, 'y', true);
+			if (x < u.bbox.left || x > u.bbox.left + u.bbox.width) continue;
+			const c = cssVar(d.color);
+			ctx.beginPath();
+			ctx.arc(x, y, r, 0, 2 * Math.PI);
+			ctx.fillStyle = d.fill ? c : cssVar('--surface-1');
+			ctx.fill();
+			ctx.strokeStyle = d.fill ? cssVar('--surface-1') : c;
+			ctx.stroke();
+		}
+		ctx.restore();
+	}
+
 	function opts(): uPlot.Options {
 		const ink = cssVar('--text-muted');
 		const grid = cssVar('--grid');
@@ -145,6 +179,7 @@
 				draw: [
 					(u) => {
 						drawMarks(u);
+						drawDots(u);
 						if (!firstDraw && u.data[0]?.length) {
 							firstDraw = true;
 							mark('chart-rendered');
@@ -216,7 +251,7 @@
 	});
 
 	$effect(() => {
-		void [xs, ys, series, xRange, marks];
+		void [xs, ys, series, xRange, marks, dots];
 		apply();
 	});
 </script>

@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Chart, { type SeriesSpec } from './Chart.svelte';
+	import Chart, { type Dot, type SeriesSpec } from './Chart.svelte';
 	import VirtualTable from './VirtualTable.svelte';
 	import VersionPicker from './VersionPicker.svelte';
-	import { fmtAxis, fmtUnit, unitLabel, type Source } from './data.svelte';
+	import { fmtAxis, fmtPct, fmtUnit, unitLabel, type LedgerEntry, type Source } from './data.svelte';
 	import { MAX_SERIES, SERIES, pickItems } from './pick';
 	import type { Ctx } from './SourcePage.svelte';
 	import { UrlState } from './url.svelte';
@@ -127,6 +127,57 @@
 	let fmtY = $derived((v: number) => fmtAxis(v, unit));
 	let fmtV = $derived((v: number) => fmtUnit(v, unit));
 
+	// Steps (DATA.md "Ledgers"): instruction counts that moved more than 1%
+	// from the previous version, within the visible range; a rise is accepted
+	// when the repo's ledger has an entry for that bench at that version.
+	const STEP_PCT = 1;
+	const ledger = new Map<string, LedgerEntry>();
+	for (const e of S.index.ledger ?? []) if (e.kind === 'accepted' && e.version !== null) ledger.set(`${e.version}\u0000${e.bench}`, e);
+	const stepped = (i: number) => S.index.kind === 'bench' && metrics[i].type === 'number' && !metrics[i].metric.includes('@');
+	type Status = 'accepted' | 'unexplained' | 'improvement';
+	interface Step {
+		i: number;
+		v: number;
+		from: number;
+		to: number;
+		pct: number;
+		status: Status;
+		entry: LedgerEntry | undefined;
+	}
+	function stepsOf(i: number, lo: number, hi: number): Step[] {
+		const col = src.columns[i];
+		const out: Step[] = [];
+		for (let v = Math.max(1, lo); v <= hi; v++) {
+			const a = col[v - 1],
+				b = col[v];
+			if (typeof a !== 'number' || typeof b !== 'number' || a === 0) continue;
+			const pct = ((b - a) / Math.abs(a)) * 100;
+			if (Math.abs(pct) <= STEP_PCT) continue;
+			const entry = pct > 0 ? ledger.get(`${v}\u0000${metrics[i].key}`) : undefined;
+			out.push({ i, v, from: a, to: b, pct, entry, status: pct < 0 ? 'improvement' : entry ? 'accepted' : 'unexplained' });
+		}
+		return out;
+	}
+	let steps = $derived.by(() => {
+		void src.rev;
+		const out: Step[] = [];
+		for (const i of filtered) if (stepped(i)) out.push(...stepsOf(i, range[0], range[1]));
+		return out.sort((x, y) => y.v - x.v || Math.abs(y.pct) - Math.abs(x.pct));
+	});
+	const DOT: Record<Status, { color: string; fill: boolean }> = {
+		unexplained: { color: '--critical', fill: true },
+		accepted: { color: '--text-secondary', fill: false },
+		improvement: { color: '--good', fill: false }
+	};
+	let dots = $derived.by<Dot[]>(() => {
+		void src.rev;
+		return selected.flatMap(([i], s) => (stepped(i) ? stepsOf(i, range[0], range[1]).map((st) => ({ x: st.v, s, ...DOT[st.status] })) : []));
+	});
+	let counts = $derived({
+		unexplained: steps.filter((s) => s.status === 'unexplained').length,
+		accepted: steps.filter((s) => s.status === 'accepted').length
+	});
+
 	// Payload-size view: families whose rows have a numeric param.
 	const families = (() => {
 		const f = new Map<string, number[]>();
@@ -168,7 +219,7 @@
 
 <div class="panel">
 	{#if selected.length === 0}<p class="muted">Select series in the table below.</p>{/if}
-	<Chart {xs} {ys} {series} {xLabel} {marks} xRange={range} {onrange} yLabel={unitLabel(unit)} {fmtY} {fmtV} onpick={(x) => ctx.open(x)} />
+	<Chart {xs} {ys} {series} {xLabel} {marks} {dots} xRange={range} {onrange} yLabel={unitLabel(unit)} {fmtY} {fmtV} onpick={(x) => ctx.open(x)} />
 </div>
 
 <VirtualTable rows={filtered} height={300}>
@@ -195,6 +246,44 @@
 	{/snippet}
 </VirtualTable>
 
+{#if S.index.kind === 'bench'}
+	<h2>Steps over {STEP_PCT}%</h2>
+	<p class="secondary">
+		Instruction counts that moved more than {STEP_PCT}% from the previous version, in the shown range:
+		{counts.unexplained} unexplained rises, {counts.accepted} accepted by the
+		{#if S.index.ledger}ledger{:else}ledger (none configured){/if}, {steps.length - counts.unexplained - counts.accepted} drops.
+		On the chart: <span class="key"><span class="dot fill"></span>unexplained</span>
+		<span class="key"><span class="dot acc"></span>accepted</span> <span class="key"><span class="dot imp"></span>drop</span>.
+	</p>
+	{#if steps.length}
+		<div data-testid="steps">
+			<VirtualTable rows={steps} height={Math.min(300, 36 + steps.length * 28)}>
+				{#snippet header()}
+					<tr><th>version</th><th>series</th><th class="num">from</th><th class="num">to</th><th class="num">Δ%</th><th>status</th></tr>
+				{/snippet}
+				{#snippet row(st: Step)}
+					<tr>
+						<td><button class="link" onclick={() => ctx.open(st.v)}>{versions[st.v].label}</button></td>
+						<td title={S.nameOf(metrics[st.i])}>{S.nameOf(metrics[st.i])}</td>
+						<td class="num">{fmtUnit(st.from, metrics[st.i].unit)}</td>
+						<td class="num">{fmtUnit(st.to, metrics[st.i].unit)}</td>
+						<td class="num {st.pct > 0 ? 'up-bad' : 'down-good'}">{fmtPct(st.pct)}</td>
+						<td title={st.entry?.reason ?? ''}>
+							{#if st.status === 'accepted' && st.entry}
+								accepted (ledger: {st.entry.reason ?? 'no reason'}, <a href="{S.index.repo_url}/pull/{st.entry.pr}">#{st.entry.pr}</a>)
+							{:else if st.status === 'unexplained'}
+								<strong>unexplained</strong>
+							{:else}
+								drop
+							{/if}
+						</td>
+					</tr>
+				{/snippet}
+			</VirtualTable>
+		</div>
+	{/if}
+{/if}
+
 {#if familyNames.length}
 	<h2>Payload size</h2>
 	<div class="row">
@@ -214,3 +303,34 @@
 		<Chart xs={pxs} ys={pys} series={pseries} xLabel={(x) => `${x} B`} logX logY yLabel={unitLabel(unit)} {fmtY} {fmtV} height={260} />
 	</div>
 {/if}
+
+<style>
+	.key {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+	}
+	.dot {
+		display: inline-block;
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		border: 2px solid var(--text-secondary);
+		box-sizing: border-box;
+	}
+	.dot.fill {
+		background: var(--critical);
+		border-color: var(--critical);
+	}
+	.dot.imp {
+		border-color: var(--good);
+	}
+	button.link {
+		border: 0;
+		padding: 0;
+		background: none;
+		color: var(--link);
+		cursor: pointer;
+		font: inherit;
+	}
+</style>

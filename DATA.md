@@ -21,6 +21,9 @@ title = "Rust runtime"
 repo = "runtime"
 branch = "reports"
 path = "rust.bench.json"
+# bench only, optional: the accepted-regressions ledger, read from the
+# repo's default branch (its tip)
+ledger = "runtime/core/benches/accepted-regressions.toml"
 
 [[source]]
 id = "wire-rust"
@@ -139,7 +142,9 @@ One entry per `ok` source (unpublished ones have none), keyed by source id:
   "metrics": [ { "key": "comline2/answer", "metric": "instructions",
                  "unit": "instructions", "type": "number",
                  "group": "comline2", "param": null, "better": "lower" } ],
-  "features": null
+  "features": null,
+  "ledger": [ { "kind": "accepted", "pr": 76, "bench": "framing/decode/jsonrpc@1/16",
+                "max_percent": 1.1, "renamed_to": null, "reason": "…", "version": 12 } ]
 }
 ```
 
@@ -158,6 +163,8 @@ One entry per `ok` source (unpublished ones have none), keyed by source id:
   metric's unit is its metric name.
 - `features` (conformance only): `{ "<feature id>": { "title", "description" } }`
   from the source's `features` file; `null` otherwise.
+- `ledger` (bench only): the source's accepted-regressions ledger, `null` when
+  `sources.toml` names none (see "Ledgers").
 
 ### Chunks: `cycle-<cycle>.<hash>.json` and `releases.<hash>.json`
 
@@ -194,6 +201,30 @@ Input (format 1, today's `rust.bench.json`):
   values from different runners are never in one series. `spread` is not carried
   yet.
 - Shard: `{ "benches": { "<id>": { "<metric>": value } } }`.
+
+#### Ledgers
+
+A bench repo's `accepted-regressions.toml` records the instruction-count
+growths over 1% that its CI gate let through: `[[accepted]]` entries
+(`pr`, `bench`, `max_percent`, `reason`) and `[[removed]]` ones (`pr`,
+`bench`, `renamed_to`?, `reason`). The collector reads the file at the tip of
+the repo's `default_branch` and writes one `ledger` entry per table, accepted
+first, in file order:
+`{ "kind": "accepted" | "removed", "pr", "bench", "max_percent", "renamed_to", "reason", "version" }`
+(`max_percent` is `null` on removals, `renamed_to` on acceptances; a missing
+`reason` is `null`).
+
+`version` is the index (into `versions`) of the first version whose measured
+`commit` contains the pull request's merge, or `null` when there is none (not
+measured yet, or the pull request isn't found). The merge is the first-parent
+commit on the default branch whose subject starts `Merge pull request #<pr> `
+or ends `(#<pr>)`. A ledger file that is missing or doesn't parse gives `[]`
+and a warning; the source is still published.
+
+The site marks a **step**, a move of more than 1% between two consecutive
+versions, on instruction counts only (a metric without a `@<runner>`: wall time
+is noise). A rise at version `i` of bench `b` is *accepted* when an `accepted`
+entry has `bench` = `b` and `version` = `i`, otherwise *unexplained*.
 
 ### `fuzz`
 

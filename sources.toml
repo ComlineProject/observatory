@@ -69,6 +69,7 @@ title = "Rust runtime"
 repo = "runtime"
 branch = "reports"
 path = "rust.bench.json"
+ledger = "runtime/core/benches/accepted-regressions.toml"
 
 [[source]]
 id = "typescript-bench"
@@ -85,6 +86,7 @@ title = "Parser"
 repo = "core"
 branch = "reports"
 path = "core.bench.json"
+ledger = "core/benches/accepted-regressions.toml"
 
 # Fuzzing
 
