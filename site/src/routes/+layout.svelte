@@ -16,6 +16,9 @@
 		...sources
 			.filter((s) => s.kind !== 'conformance' && s.status === 'ok')
 			.map((s) => ({ href: `/${s.kind}/${s.id}/`, label: `${s.kind === 'bench' ? 'Benchmarks' : 'Fuzzing'}: ${s.title}` })),
+		...(sources.filter((s) => s.kind === 'bench' && s.status === 'ok').length >= 2
+			? [{ href: '/ratio/', label: 'Benchmarks: ratio to Rust' }]
+			: []),
 		{ href: '/conformance/wire/', label: 'Wire conformance' },
 		{ href: '/conformance/codegen/', label: 'Codegen conformance' }
 	]);
