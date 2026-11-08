@@ -260,6 +260,13 @@ GitHub REST API (`GET /repos/{owner}/{repo}/actions/runs`, token from
   is a rerun), `conclusion` (`type` `"verdict"`: `success` → `"pass"`,
   `failure` / `timed_out` → `"fail"`, anything else → `null`). A version only
   has values for its own workflow; the rest are `null`.
+- `attempts` has `unit` `null` and `better` `"lower"`; `duration_s` has `unit`
+  `"s"`, `better` `"lower"`; `conclusion` has `better` `null`.
+- A ci version belongs to exactly one workflow: the one whose rows are non-null
+  in it (the rest are `null`).
+- A "last N days" window over ci versions counts back from the **newest run's**
+  `date`, not from the current time, so a quiet repo still shows its history.
+- Sizes are decimal: 1 KB = 1000 bytes, 1 MB = 1000 KB (sites format `bytes` that way).
 - Shard: `{ "workflow", "event", "conclusion", "run_attempt", "duration_s", "html_url" }`.
 - Without a token the API allows 60 requests an hour, which is enough for a
   local run of a few sources; CI passes the job's token.
