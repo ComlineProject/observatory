@@ -20,6 +20,19 @@
 		{ href: '/conformance/codegen/', label: 'Codegen conformance' }
 	]);
 	let path = $derived(page.url.pathname.slice(base.length) || '/');
+
+	// Dark unless the viewer chose light (app.html applies it before paint).
+	let light = $state(false);
+	onMount(() => (light = document.documentElement.dataset.theme === 'light'));
+	function toggleTheme() {
+		light = !light;
+		if (light) document.documentElement.dataset.theme = 'light';
+		else delete document.documentElement.dataset.theme;
+		try {
+			if (light) localStorage.setItem('theme', 'light');
+			else localStorage.removeItem('theme');
+		} catch {}
+	}
 </script>
 
 <header>
@@ -29,6 +42,9 @@
 			<a href="{base}{n.href}" class:active={n.href === '/' ? path === '/' : path.startsWith(n.href)}>{n.label}</a>
 		{/each}
 	</nav>
+	<button class="theme" onclick={toggleTheme} aria-label={light ? 'Switch to dark theme' : 'Switch to light theme'}>
+		{light ? 'Dark' : 'Light'}
+	</button>
 </header>
 <main>
 	{@render children()}
@@ -63,6 +79,17 @@
 	nav a.active {
 		color: var(--text-primary);
 		border-bottom-color: var(--series-1);
+	}
+	.theme {
+		margin-left: auto;
+		font: inherit;
+		font-size: 0.85em;
+		color: var(--text-secondary);
+		background: var(--surface-2);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		padding: 2px 10px;
+		cursor: pointer;
 	}
 	main {
 		max-width: 1200px;
