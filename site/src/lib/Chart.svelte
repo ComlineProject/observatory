@@ -30,6 +30,9 @@
 		logY = false,
 		height = 320,
 		yLabel = '',
+		fmtY,
+		fmtV,
+		spanGaps = false,
 		onpick,
 		onrange
 	}: {
@@ -43,6 +46,12 @@
 		logY?: boolean;
 		height?: number;
 		yLabel?: string;
+		/** Y tick format (default: compact number). */
+		fmtY?: (v: number) => string;
+		/** Legend value format (default: full number). */
+		fmtV?: (v: number) => string;
+		/** Join points across nulls (series that are sparse by nature, like one CI workflow among many). */
+		spanGaps?: boolean;
 		onpick?: (x: number) => void;
 		onrange?: (lo: number, hi: number) => void;
 	} = $props();
@@ -65,9 +74,9 @@
 			label: s.label,
 			stroke: c,
 			width: 2,
-			spanGaps: false,
+			spanGaps,
 			points: { size: 7, stroke: c, fill: cssVar('--surface-1'), width: 2 },
-			value: (_u, v) => (v == null ? '–' : v.toLocaleString('en-US'))
+			value: (_u, v) => (v == null ? '–' : fmtV ? fmtV(v) : v.toLocaleString('en-US'))
 		};
 	}
 
@@ -126,7 +135,7 @@
 					...axis,
 					size: 64,
 					label: yLabel || undefined,
-					values: (_u, splits) => splits.map((v) => (v == null ? '' : compact.format(v)))
+					values: (_u, splits) => splits.map((v) => (v == null ? '' : fmtY ? fmtY(v) : compact.format(v)))
 				}
 			],
 			legend: { live: true },

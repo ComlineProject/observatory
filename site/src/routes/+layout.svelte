@@ -3,7 +3,7 @@
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
-	import { loadManifest, type ManifestSource } from '$lib/data.svelte';
+	import { KINDS, loadManifest, type ManifestSource } from '$lib/data.svelte';
 
 	let { children } = $props();
 	let sources = $state<ManifestSource[]>([]);
@@ -11,17 +11,15 @@
 		loadManifest().then((m) => (sources = m.sources), () => {});
 	});
 
+	// One link per kind the manifest has a source of.
 	let nav = $derived([
 		{ href: '/', label: 'Overview' },
-		...sources
-			.filter((s) => s.kind !== 'conformance' && s.status === 'ok')
-			.map((s) => ({ href: `/${s.kind}/${s.id}/`, label: `${s.kind === 'bench' ? 'Benchmarks' : 'Fuzzing'}: ${s.title}` })),
-		...(sources.filter((s) => s.kind === 'bench' && s.status === 'ok').length >= 2
-			? [{ href: '/ratio/', label: 'Benchmarks: ratio to Rust' }]
-			: []),
-		{ href: '/conformance/wire/', label: 'Wire conformance' },
-		{ href: '/conformance/codegen/', label: 'Codegen conformance' }
+		...KINDS.filter((k) => sources.some((s) => s.kind === k.kind)).map((k) => ({ href: `/${k.kind}/`, label: k.label }))
 	]);
+	function active(href: string) {
+		if (href === '/') return path === '/';
+		return path.startsWith(href) || (href === '/bench/' && path.startsWith('/ratio/'));
+	}
 	let path = $derived(page.url.pathname.slice(base.length) || '/');
 
 	// Dark unless the viewer chose light (app.html applies it before paint).
@@ -42,7 +40,7 @@
 	<a class="brand" href="{base}/">Comline Observatory</a>
 	<nav>
 		{#each nav as n (n.href)}
-			<a href="{base}{n.href}" class:active={n.href === '/' ? path === '/' : path.startsWith(n.href)}>{n.label}</a>
+			<a href="{base}{n.href}" class:active={active(n.href)}>{n.label}</a>
 		{/each}
 	</nav>
 	<button class="theme" onclick={toggleTheme} aria-label={light ? 'Switch to dark theme' : 'Switch to light theme'}>
