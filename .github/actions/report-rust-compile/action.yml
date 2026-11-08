@@ -34,4 +34,4 @@ runs:
         # shellcheck disable=SC2086 # args are space-separated on purpose
         cargo build $ARGS --timings
         python3 "$GITHUB_ACTION_PATH/report-compile.py" --output "$OUTPUT" --runner "$RUNNER_LABEL" \
-          --profile "$ARGS" --toolchain "$(rustc --version)"
+          --profile="$ARGS" --toolchain "$(rustc --version)"
