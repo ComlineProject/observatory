@@ -81,13 +81,19 @@
 		return hi > lo ? [lo, hi] : [Math.max(0, lo - 1), Math.max(hi, 1)];
 	}
 	const newest = S.index.cycles.length - 1;
+	// With chosen versions, the default range widens to take them all in.
+	function defaultRange(): [number, number] {
+		const [lo, hi] = cycleRange(newest);
+		const m = ctx.marked;
+		return m.length ? clampR(Math.min(lo, ...m), Math.max(hi, ...m)) : [lo, hi];
+	}
 	const clampR = (lo: number, hi: number): [number, number] => [Math.max(0, lo), Math.min(versions.length - 1, Math.max(hi, lo + 1))];
 	let range = $derived.by<[number, number]>(() => {
 		const x = url.get('x');
 		const m = x?.match(/^(.+)\.\.(.+)$/);
 		const lo = m ? src.byLabel.get(m[1]) : undefined;
 		const hi = m ? src.byLabel.get(m[2]) : undefined;
-		return lo !== undefined && hi !== undefined && hi > lo ? clampR(lo, hi) : cycleRange(newest);
+		return lo !== undefined && hi !== undefined && hi > lo ? clampR(lo, hi) : defaultRange();
 	});
 	let rangeSel = $derived.by(() => {
 		const [lo, hi] = range;
@@ -102,7 +108,7 @@
 		src.loadRange(range[0], range[1]);
 	});
 	function setX(lo: number, hi: number) {
-		const [a, b] = cycleRange(newest);
+		const [a, b] = defaultRange();
 		url.set({ x: lo === a && hi === b ? null : `${versions[lo].label}..${versions[hi].label}` });
 	}
 	function setRange(v: string) {
@@ -118,10 +124,9 @@
 	let ys = $derived((void src.rev, selected.map(([i]) => src.columns[i].slice() as (number | null)[])));
 	let spreads = $derived((void src.rev, selected.map(([i]) => src.spreads[i]?.slice() ?? null)));
 	let series = $derived<SeriesSpec[]>(selected.map(([i, s]) => ({ label: S.nameOf(metrics[i]), color: SERIES[s] })));
-	let marks = $derived([
-		...src.releaseIdx.map((i) => ({ x: i, label: versions[i].release! })),
-		...ctx.marked.filter((i) => !versions[i].release).map((i) => ({ x: i, label: versions[i].label }))
-	]);
+	let marks = $derived(src.releaseIdx.map((i) => ({ x: i, label: versions[i].release! })));
+	// N versions: the chosen versions (`?v=`) overlaid on the chart.
+	let pins = $derived(ctx.marked.map((i) => ({ x: i, label: versions[i].label })));
 	let at = $derived(ctx.at ?? versions.length - 1);
 	// The axis unit: the first selected series' (a source's numbers share one unit per kind).
 	let unit = $derived(selected.length ? metrics[selected[0][0]].unit : (metrics[0]?.unit ?? null));
@@ -228,13 +233,32 @@
 			{#if rangeSel === 'zoom'}<option value="zoom">zoomed</option>{/if}
 		</select>
 	</label>
-	<span class="muted">{#if src.spreads.some((x) => x)}Shaded bands: the run-to-run spread.{' '}{/if}Drag on the chart to zoom, double-click to reset; click a point to open that version.</span>
+	<span class="muted">{#if pins.length}Solid lines: the chosen versions, their points ringed.{' '}{/if}{#if src.spreads.some((x) => x)}Shaded bands: the run-to-run spread.{' '}{/if}Drag on the chart to zoom, double-click to reset; click a point to open that version.</span>
 </div>
 
 <div class="panel">
 	{#if selected.length === 0}<p class="muted">Select series in the table below.</p>{/if}
-	<Chart {xs} {ys} {series} {xLabel} {marks} {dots} {spreads} xRange={range} {onrange} yLabel={unitLabel(unit)} {fmtY} {fmtV} onpick={(x) => ctx.open(x)} />
+	<Chart {xs} {ys} {series} {xLabel} {marks} {pins} {dots} {spreads} xRange={range} {onrange} yLabel={unitLabel(unit)} {fmtY} {fmtV} onpick={(x) => ctx.open(x)} />
 </div>
+
+{#if pins.length && selected.length}
+	<table class="at-pins" data-testid="pin-values">
+		<thead>
+			<tr>
+				<th>series at the chosen versions</th>
+				{#each pins as p (p.x)}<th class="num"><button class="link" onclick={() => ctx.open(p.x)}>{p.label}</button></th>{/each}
+			</tr>
+		</thead>
+		<tbody>
+			{#each selected as [i, s] (i)}
+				<tr>
+					<td title={S.nameOf(metrics[i])}><span class="swatch" style:background="var({SERIES[s]})"></span>{S.nameOf(metrics[i])}</td>
+					{#each pins as p (p.x)}<td class="num">{(void src.rev, fmtUnit(src.columns[i][p.x], metrics[i].unit))}</td>{/each}
+				</tr>
+			{/each}
+		</tbody>
+	</table>
+{/if}
 
 <VirtualTable rows={filtered} height={300}>
 	{#snippet header()}
@@ -345,6 +369,36 @@
 	}
 	.dot.imp {
 		border-color: var(--good);
+	}
+	.at-pins {
+		width: 100%;
+		border-collapse: collapse;
+		margin: 0 0 12px;
+		font-size: 13px;
+		table-layout: fixed;
+	}
+	.at-pins th,
+	.at-pins td {
+		padding: 3px 8px;
+		border-bottom: 1px solid var(--border);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		text-align: left;
+	}
+	.at-pins .swatch {
+		margin-right: 6px;
+	}
+	.at-pins th:first-child {
+		width: 40%;
+	}
+	.at-pins .num {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+	}
+	.at-pins th {
+		color: var(--text-secondary);
+		font-weight: 600;
 	}
 	button.link {
 		border: 0;
