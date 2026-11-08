@@ -1,0 +1,6 @@
+.cache/
+node_modules/
+site/.svelte-kit/
+site/build/
+site/static/data/
+__pycache__/

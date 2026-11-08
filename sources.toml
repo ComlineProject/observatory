@@ -1,0 +1,70 @@
+# What the collector reads. Format: DATA.md.
+
+[[repo]]
+name = "runtime"
+url = "https://github.com/ComlineProject/runtime"
+default_branch = "main"
+tag = '^v(?P<version>\d+\.\d+\.\d+(?:[-+].*)?)$'
+
+[[repo]]
+name = "generation"
+url = "https://github.com/ComlineProject/generation"
+default_branch = "master"
+tag = '^v(?P<version>\d+\.\d+\.\d+(?:[-+].*)?)$'
+
+[[repo]]
+name = "comline-typescript"
+url = "https://github.com/ComlineProject/comline-typescript"
+default_branch = "main"
+tag = '^v(?P<version>\d+\.\d+\.\d+(?:[-+].*)?)$'
+
+# Benchmarks
+
+[[source]]
+id = "runtime-bench"
+kind = "bench"
+title = "Rust runtime"
+repo = "runtime"
+branch = "reports"
+path = "rust.bench.json"
+
+# Fuzzing
+
+[[source]]
+id = "runtime-fuzz"
+kind = "fuzz"
+title = "Rust runtime"
+repo = "runtime"
+branch = "reports"
+path = "rust.fuzz.json"
+
+# Conformance
+
+[[source]]
+id = "codegen"
+kind = "conformance"
+matrix = "codegen"
+title = "Code generators"
+repo = "generation"
+branch = "master"
+path = "features.json"
+
+[[source]]
+id = "wire-rust"
+kind = "conformance"
+matrix = "wire"
+title = "Rust runtime"
+repo = "runtime"
+branch = "main"
+path = "runtime/conformance/reports/rust.json"
+features = { repo = "runtime", path = "runtime/conformance/features.json" }
+
+[[source]]
+id = "wire-typescript"
+kind = "conformance"
+matrix = "wire"
+title = "TypeScript runtime"
+repo = "comline-typescript"
+branch = "main"
+path = "runtime/conformance-report.json"
+features = { repo = "runtime", path = "runtime/conformance/features.json" }
