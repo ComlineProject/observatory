@@ -18,6 +18,8 @@ const matrices = [...new Set(ok.filter((s) => s.kind === 'conformance').map((s) 
 const FCP_MS = 1000;
 const SWITCH_MS = 50;
 const DATA_BYTES = 500 * 1024;
+// The overview and the kind indexes read one summary file, whatever the history length.
+const CARDS_BYTES = 50 * 1024;
 
 const gz = new Map<string, number>();
 function gzipSize(path: string) {
@@ -43,6 +45,9 @@ async function open(page: Page, path: string, chart: boolean) {
 	return { fcp, bytes, files: fetched.length };
 }
 
+const kinds = [...new Set(ok.map((s) => s.kind))];
+const cardPages = (n: string) => n === 'overview' || n.startsWith('kind index');
+
 const pages: [string, string, boolean][] = [
 	['overview', '', false],
 	...(bench ? [['bench', `bench/${bench.id}/`, true] as [string, string, boolean]] : []),
@@ -50,7 +55,7 @@ const pages: [string, string, boolean][] = [
 	...(fuzz ? [['fuzz', `fuzz/${fuzz.id}/`, true] as [string, string, boolean]] : []),
 	...matrices.map((m) => [`conformance ${m}`, `conformance/${m}/`, false] as [string, string, boolean]),
 	...NEW_KINDS.flatMap((k) => (firstOf[k] ? [[k, `${k}/${firstOf[k]!.id}/`, true] as [string, string, boolean]] : [])),
-	['kind index ci', 'ci/', false]
+	...kinds.map((k) => [`kind index ${k}`, `${k}/`, false] as [string, string, boolean])
 ];
 
 for (const [name, path, chart] of pages) {
@@ -58,7 +63,7 @@ for (const [name, path, chart] of pages) {
 		const r = await open(page, path, chart);
 		console.log(`${name}: FCP ${r.fcp.toFixed(0)} ms, initial data ${(r.bytes / 1024).toFixed(1)} KB gzip in ${r.files} files`);
 		expect(r.fcp).toBeLessThan(FCP_MS);
-		expect(r.bytes).toBeLessThan(DATA_BYTES);
+		expect(r.bytes).toBeLessThan(cardPages(name) ? CARDS_BYTES : DATA_BYTES);
 	});
 }
 

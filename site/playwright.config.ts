@@ -9,12 +9,12 @@ export default defineConfig({
 	workers: 1,
 	reporter: 'list',
 	use: {
-		baseURL: `http://localhost:4173${process.env.BASE_PATH ?? ''}/`,
+		baseURL: `http://localhost:${process.env.PORT ?? 4173}${process.env.BASE_PATH ?? ''}/`,
 		launchOptions: process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {}
 	},
 	webServer: {
-		command: 'npm run preview',
-		port: 4173,
+		command: `npm run preview -- --port ${process.env.PORT ?? 4173}`,
+		port: Number(process.env.PORT ?? 4173),
 		reuseExistingServer: !process.env.CI
 	}
 });

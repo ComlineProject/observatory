@@ -31,6 +31,16 @@ export interface Manifest {
 	format: number;
 	generated: string;
 	sources: ManifestSource[];
+	/** The overview cards' data: one small file (DATA.md "Summary"). */
+	summary: string;
+}
+export interface CardSummary {
+	label: string;
+	date: string;
+	release: string | null;
+	spark: (number | null)[];
+	sparkLabel: string;
+	badge: { text: string; cls: string } | null;
 }
 export interface Version {
 	id: string;
@@ -102,6 +112,11 @@ export function loadManifest(): Promise<Manifest> {
 		if (m.format !== FORMAT) throw new Error(`dataset format ${m.format}, this site reads ${FORMAT}`);
 		return m;
 	});
+}
+
+/** Every ok source's card, keyed by source id. */
+export function loadSummary(): Promise<Record<string, CardSummary>> {
+	return loadManifest().then((m) => fetchData<{ sources: Record<string, CardSummary> }>(m.summary)).then((x) => x.sources);
 }
 
 /**

@@ -290,6 +290,35 @@ class RunTests(Fixture):
         self.assertEqual((e["kind"], e["repo"], e["matrix"], e["status"]), ("bench", "r", None, "ok"))
         self.assertRegex(e["index"], r"^sources/bench/index\.[0-9a-f]{12}\.json$")
 
+    def test_summary(self):
+        m = json.loads((self.out / "manifest.json").read_text())
+        self.assertRegex(m["summary"], r"^sources/summary\.[0-9a-f]{12}\.json$")
+        cards = json.loads((self.out / m["summary"]).read_text())["sources"]
+        self.assertEqual(sorted(cards), ["bench", "fuzz", "wire"])  # ok sources only
+        _, idx = self.load(self.out, "bench")
+        last = idx["versions"][-1]
+        c = cards["bench"]
+        self.assertEqual((c["label"], c["date"], c["release"]), (last["label"], last["date"], last["release"]))
+        self.assertEqual(c["spark"][-1], 1.0)  # relative to the newest version
+        self.assertIsNone(c["badge"])
+        self.assertEqual(cards["fuzz"]["sparkLabel"], "total executions")
+        self.assertIn(cards["fuzz"]["badge"]["cls"], ("s-pass", "s-fail"))
+        self.assertRegex(cards["wire"]["badge"]["text"], r"\d+ \w+")
+
+    def test_lttb(self):
+        self.assertEqual(collect.lttb([1, None, 3]), [1, None, 3])
+        ys = [float(i % 7) for i in range(500)]
+        out = collect.lttb(ys)
+        self.assertEqual(len(out), 40)
+        self.assertEqual((out[0], out[-1]), (ys[0], ys[-1]))
+        self.assertEqual(collect.lttb([None, 1.0] * 100)[0], 1.0)
+
+    def test_fmt_unit(self):
+        self.assertEqual(collect.fmt_unit(1234567, "bytes"), "1.23 MB")
+        self.assertEqual(collect.fmt_unit(12.5, "s"), "12.5 s")
+        self.assertEqual(collect.fmt_unit(87.456, "%"), "87.46%")
+        self.assertEqual(collect.fmt_unit(None, "%"), "\u2013")
+
     def test_hashed_names_stable_and_stale_removed(self):
         a, b = self.root / "ra", self.root / "rb"
         self.assertEqual(self.collect(a), 0)
