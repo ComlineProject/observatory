@@ -19,6 +19,30 @@ Design: [the project dashboard proposal](https://comlineproject.github.io/docs/p
 
   (`permissions: contents: write`, a checkout with `fetch-depth: 0`, and never
   from a pull request: see [`action.yml`](.github/actions/publish-report/action.yml).)
+- Reports that are measured the same way everywhere have actions too, each
+  writing a report file for `publish-report` (inputs are in each `action.yml`):
+
+  ```yaml
+  - uses: ComlineProject/observatory/.github/actions/report-size@v1
+    with:
+      output: reports/rust.size.json
+      toolchain: ${{ steps.rust.outputs.cachekey }}   # optional
+      artifacts: |
+        ffi/cdylib/x86_64-linux-release=target/release/libcomline_ffi.so
+        ffi/wasm32-release=target/wasm32-unknown-unknown/release/*.wasm
+  - uses: ComlineProject/observatory/.github/actions/report-rust-coverage@v1
+    with:
+      output: reports/rust.coverage.json
+      args: --workspace            # extra cargo-llvm-cov arguments
+  - uses: ComlineProject/observatory/.github/actions/report-rust-compile@v1
+    with:
+      output: reports/rust.compile.json
+      args: --workspace --release  # cargo build arguments (a clean build)
+      runner: github-hosted        # the machine class; times compare per runner
+  ```
+
+  The coverage and compile actions expect the Rust toolchain to be set up
+  already. The `ci` sources need no producer: the collector reads the GitHub API.
 - **`collector/`** (Python standard library) walks those histories and writes
   the dataset described in [`DATA.md`](DATA.md). What it reads is listed in
   [`sources.toml`](sources.toml).

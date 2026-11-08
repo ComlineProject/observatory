@@ -1,0 +1,37 @@
+name: Report Rust compile time
+description: >
+  Do a clean build of the workspace with `cargo build --timings` and write a
+  `compile` report (DATA.md, kind `compile`): seconds per workspace crate and
+  the whole build's wall seconds. Publish the file with `publish-report`.
+  The calling job sets up the Rust toolchain and checks out the code.
+  (`--timings=json` does not exist on current cargo, nightly included, so the
+  numbers come from the timing report's embedded unit data.)
+
+inputs:
+  output:
+    description: The report file to write, e.g. `reports/rust.compile.json`.
+    required: true
+  args:
+    description: Arguments for `cargo build`.
+    default: --workspace --release
+  runner:
+    description: >
+      A label for the machine class, recorded as the report's `runner` (compile
+      times are only comparable per runner). Use `github-hosted` for GitHub's
+      runners and a stable name for your own.
+    default: github-hosted
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        OUTPUT: ${{ inputs.output }}
+        ARGS: ${{ inputs.args }}
+        RUNNER_LABEL: ${{ inputs.runner }}
+      run: |
+        cargo clean
+        # shellcheck disable=SC2086 # args are space-separated on purpose
+        cargo build $ARGS --timings
+        python3 "$GITHUB_ACTION_PATH/report-compile.py" --output "$OUTPUT" --runner "$RUNNER_LABEL" \
+          --profile "$ARGS" --toolchain "$(rustc --version)"

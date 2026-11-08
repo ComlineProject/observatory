@@ -109,7 +109,7 @@ collector exits non-zero only on a bad `sources.toml` or `--strict`.
   "releases": "sources/runtime-bench/releases.<hash>.json",
   "metrics": [ { "key": "comline2/answer", "metric": "instructions",
                  "unit": "instructions", "type": "number",
-                 "group": "comline2", "param": null } ],
+                 "group": "comline2", "param": null, "better": "lower" } ],
   "features": null
 }
 ```
@@ -122,6 +122,8 @@ collector exits non-zero only on a bad `sources.toml` or `--strict`.
   last segment when it is a plain integer, written as a JSON number
   (`ffi/abi/…/message/4096` → group `ffi/abi/…/message`, param `4096`), so
   payload-size families line up; `null` otherwise.
+- `better` is `"higher"`, `"lower"` or `null`: which direction is an improvement
+  (see "Which way is better"). `null` for `verdict` and `state` rows.
 - `unit` is `null` for `verdict` and `state` rows. Fuzz units: `executions`,
   `inputs` (corpus), `findings`, `s` (seconds), `cases`. A format-2 bench
   metric's unit is its metric name.
@@ -218,7 +220,10 @@ Input (`<name>.size.json`):
 
 Input (`<name>.compile.json`):
 `{ "format": 1, "commit", "toolchain", "run", "runner", "profile", "total_seconds": x, "units": { "<crate>": { "seconds": x } } }`
-(from `cargo build --timings=json`, clean build of the workspace).
+(a clean build of the workspace; the `report-rust-compile` action reads the unit
+data embedded in `cargo build --timings`'s report, because cargo has no
+`--timings=json` output, nightly included; `total_seconds` is the end of the
+last unit, `units` sums a crate's units, build script included).
 
 - Metric rows: `key` = crate, plus `key` = `total` for `total_seconds`;
   `metric` = `"seconds@<runner>"` (wall time is per runner, like bench format
@@ -263,19 +268,27 @@ GitHub REST API (`GET /repos/{owner}/{repo}/actions/runs`, token from
 
 The site needs to know whether a rise is good or bad: `coverage`, and fuzz
 `executions` and `corpus`, are higher-is-better; every other number is
-lower-is-better.
+lower-is-better. The collector writes the answer into each metric row as
+`better`; `verdict` and `state` rows have `null`. (A ci `attempts` count is
+lower-is-better like the rest.)
 
 ## Running
 
 ```
 python3 collector/collect.py --sources sources.toml --out site/static/data \
-    [--cache .cache/repos] [--local runtime=/path/to/runtime ...] [--strict]
+    [--cache .cache/repos] [--local runtime=/path/to/runtime ...] [--strict] [--no-network]
 ```
 
 - `--cache` keeps blobless clones between runs (`git clone --filter=blob:none
   --no-checkout`, then `git fetch --tags` and each needed branch).
 - `--local name=path` reads an existing checkout instead of cloning. It uses
   that checkout's `origin/<branch>` refs and tags, and never writes to it.
+- `--no-network` skips the GitHub API: `ci` sources are unpublished ("ci needs
+  the network"). Repositories are still cloned or fetched in the cache.
+- A `ci` source's `branch` in the index is the repo's `default_branch` and its
+  `path` is `null`; the repo clone (cache or `--local`) is used for tags and
+  ancestry only, so a repo without a matching tag has every run `unreleased`.
+  An API failure (rate limit, network) unpublishes that source with the reason.
 - Exit status: `0` on success, `2` on a bad `sources.toml` (or bad
   arguments), `1` with `--strict` when any source is unpublished. If a
   `--local` or cache repository can't be read the sources using it are
