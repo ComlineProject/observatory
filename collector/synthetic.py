@@ -64,7 +64,11 @@ def build(out, scale, seed=7):
         benches = {}
         for m, bid in enumerate(ids):
             if i >= born[m]:
-                base[m] = max(10, int(base[m] * (1 + rng.uniform(-0.02, 0.025))))
+                # Instruction counts are deterministic: they move in steps when
+                # the code changes. The runtime's history moves ~7% of values
+                # per version; 10% keeps the budget test a little pessimistic.
+                if rng.random() < 0.10:
+                    base[m] = max(10, int(base[m] * (1 + rng.uniform(-0.02, 0.025))))
                 benches[bid] = {"ir": base[m]}
         return {"commit": commit, "toolchain": "rustc 1.98.0 (synthetic)", "benches": benches}
 
