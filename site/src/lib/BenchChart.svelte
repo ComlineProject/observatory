@@ -162,6 +162,6 @@
 		{/if}
 	</div>
 	<div class="panel">
-		<Chart xs={pxs} ys={pys} series={pseries} xLabel={(x) => `${x} B`} logX yLabel="instructions" height={260} />
+		<Chart xs={pxs} ys={pys} series={pseries} xLabel={(x) => `${x} B`} logX logY yLabel="instructions" height={260} />
 	</div>
 {/if}

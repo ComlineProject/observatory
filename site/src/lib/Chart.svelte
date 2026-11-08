@@ -27,6 +27,7 @@
 		marks = [],
 		xRange = null,
 		logX = false,
+		logY = false,
 		height = 320,
 		yLabel = '',
 		onpick,
@@ -39,6 +40,7 @@
 		marks?: XMark[];
 		xRange?: [number, number] | null;
 		logX?: boolean;
+		logY?: boolean;
 		height?: number;
 		yLabel?: string;
 		onpick?: (x: number) => void;
@@ -109,7 +111,10 @@
 		return {
 			width: el.clientWidth || 600,
 			height,
-			scales: logX ? { x: { time: false, distr: 3, log: 2 } } : { x: { time: false } },
+			scales: {
+				x: logX ? { time: false, distr: 3, log: 2 } : { time: false },
+				...(logY ? { y: { distr: 3, log: 10 } } : {})
+			},
 			axes: [
 				{
 					...axis,
