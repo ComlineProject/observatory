@@ -5,6 +5,7 @@
 	import { fmtAxis, fmtUnit, unitLabel, type Source } from './data.svelte';
 	import { MAX_SERIES, SERIES, pickItems } from './pick';
 	import type { Ctx } from './SourcePage.svelte';
+	import { UrlState } from './url.svelte';
 
 	import { untrack } from 'svelte';
 
@@ -16,20 +17,50 @@
 	const xs = versions.map((_, i) => i);
 	const xLabel = (x: number) => versions[Math.round(x)]?.label ?? '';
 
-	// Series → colour slot; a series keeps its colour while it stays selected.
-	let slots = $state<Record<number, number>>({});
-	let selected = $derived(
-		Object.entries(slots)
-			.map(([i, s]) => [Number(i), s] as const)
-			.sort((x, y) => x[1] - y[1])
-	);
-	function toggle(i: number) {
-		if (i in slots) delete slots[i];
-		else {
-			const used = new Set(Object.values(slots));
-			const free = SERIES.findIndex((_, k) => !used.has(k));
-			if (free >= 0) slots[i] = free;
+	// Chart state in the URL (shareable; back/forward work): `?s=` the series
+	// (keys, or `.<index>` when the keys would make a long URL), `?x=` the
+	// visible range as `<from label>..<to label>`.
+	const url = new UrlState(['s', 'x']);
+	const keyOf = (i: number) => (S.multiMetric ? `${metrics[i].key}~${metrics[i].metric}` : metrics[i].key);
+	const byKey = new Map(metrics.map((_, i) => [keyOf(i), i]));
+	function decodeS(v: string | null): number[] {
+		if (v === null) return metrics.slice(0, 3).map((_, i) => i);
+		if (v === '~') return [];
+		const out: number[] = [];
+		for (const k of v.split(',')) {
+			const i = /^\.\d+$/.test(k) ? Number(k.slice(1)) : byKey.get(k);
+			if (i !== undefined && i < metrics.length && !out.includes(i)) out.push(i);
 		}
+		return out.slice(0, MAX_SERIES);
+	}
+	function encodeS(is: number[]): string {
+		if (!is.length) return '~';
+		const keys = is.map(keyOf).join(',');
+		return keys.length <= 240 ? keys : is.map((i) => `.${i}`).join(',');
+	}
+
+	// Series → colour slot; a series keeps its colour while it stays selected.
+	let slots: Record<number, number> = {};
+	let wanted = $derived(decodeS(url.get('s')));
+	let selected = $derived.by(() => {
+		const keep: Record<number, number> = {};
+		for (const i of wanted) if (i in slots) keep[i] = slots[i];
+		const used = new Set(Object.values(keep));
+		for (const i of wanted)
+			if (!(i in keep)) {
+				const free = SERIES.findIndex((_, k) => !used.has(k));
+				if (free < 0) break;
+				keep[i] = free;
+				used.add(free);
+			}
+		slots = keep;
+		return wanted.filter((i) => i in keep).map((i) => [i, keep[i]] as const);
+	});
+	let slotOf = $derived(Object.fromEntries(selected) as Record<number, number>);
+	function toggle(i: number) {
+		const cur = selected.map(([j]) => j);
+		const next = cur.includes(i) ? cur.filter((j) => j !== i) : [...cur, i];
+		url.set({ s: encodeS(next) });
 	}
 
 	let filtered = $derived.by(() => {
@@ -43,31 +74,45 @@
 		});
 		return out;
 	});
-	// Start with the first few series.
-	untrack(() => filtered.slice(0, 3).forEach((i) => toggle(i)));
 
 	// The visible range starts on the newest cycle (loaded with the page).
 	function cycleRange(ci: number): [number, number] {
 		const [lo, hi] = src.cycleRange(ci);
 		return hi > lo ? [lo, hi] : [Math.max(0, lo - 1), Math.max(hi, 1)];
 	}
-	let range = $state<[number, number]>(cycleRange(S.index.cycles.length - 1));
-	let rangeSel = $state(String(S.index.cycles.length - 1));
-	function setRange(v: string) {
-		rangeSel = v;
-		if (v === 'all') {
-			range = [0, Math.max(1, versions.length - 1)];
-			src.loadAll();
-		} else {
-			range = cycleRange(Number(v));
-			src.loadCycle(Number(v));
+	const newest = S.index.cycles.length - 1;
+	const clampR = (lo: number, hi: number): [number, number] => [Math.max(0, lo), Math.min(versions.length - 1, Math.max(hi, lo + 1))];
+	let range = $derived.by<[number, number]>(() => {
+		const x = url.get('x');
+		const m = x?.match(/^(.+)\.\.(.+)$/);
+		const lo = m ? src.byLabel.get(m[1]) : undefined;
+		const hi = m ? src.byLabel.get(m[2]) : undefined;
+		return lo !== undefined && hi !== undefined && hi > lo ? clampR(lo, hi) : cycleRange(newest);
+	});
+	let rangeSel = $derived.by(() => {
+		const [lo, hi] = range;
+		if (lo === 0 && hi === Math.max(1, versions.length - 1) && url.get('x') !== null) return 'all';
+		for (let ci = 0; ci < S.index.cycles.length; ci++) {
+			const [a, b] = cycleRange(ci);
+			if (a === lo && b === hi) return String(ci);
 		}
+		return 'zoom';
+	});
+	$effect(() => {
+		src.loadRange(range[0], range[1]);
+	});
+	function setX(lo: number, hi: number) {
+		const [a, b] = cycleRange(newest);
+		url.set({ x: lo === a && hi === b ? null : `${versions[lo].label}..${versions[hi].label}` });
+	}
+	function setRange(v: string) {
+		if (v === 'all') setX(0, Math.max(1, versions.length - 1));
+		else if (v !== 'zoom') setX(...cycleRange(Number(v)));
 	}
 	function onrange(lo: number, hi: number) {
-		if (lo === range[0] && hi === range[1]) return;
-		range = [Math.max(0, lo), Math.min(versions.length - 1, hi)];
-		rangeSel = 'zoom';
-		src.loadRange(range[0], range[1]);
+		const r = clampR(lo, hi);
+		if (r[0] === range[0] && r[1] === range[1]) return;
+		setX(r[0], r[1]);
 	}
 
 	let ys = $derived((void src.rev, selected.map(([i]) => src.columns[i].slice() as (number | null)[])));
@@ -136,13 +181,13 @@
 				<input
 					type="checkbox"
 					aria-label="show {S.nameOf(metrics[i])}"
-					checked={i in slots}
-					disabled={!(i in slots) && selected.length >= MAX_SERIES}
+					checked={i in slotOf}
+					disabled={!(i in slotOf) && selected.length >= MAX_SERIES}
 					onchange={() => toggle(i)}
 				/>
 			</td>
 			<td title={S.nameOf(metrics[i])}>
-				{#if i in slots}<span class="swatch" style:background="var({SERIES[slots[i]]})"></span>{/if}
+				{#if i in slotOf}<span class="swatch" style:background="var({SERIES[slotOf[i]]})"></span>{/if}
 				{S.nameOf(metrics[i])}
 			</td>
 			<td class="num">{(void src.rev, fmtUnit(src.columns[i][at], metrics[i].unit))}</td>
