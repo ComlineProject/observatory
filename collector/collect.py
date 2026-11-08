@@ -11,11 +11,15 @@ import shutil
 import subprocess
 import sys
 import tomllib
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
 FORMAT = 1
-KINDS = ("bench", "fuzz", "conformance")
+KINDS = ("bench", "fuzz", "conformance", "size", "compile", "coverage", "ci")
+CI_EVENTS = ("push", "schedule", "workflow_dispatch")
+CI_LIMIT = 1000
 MATRICES = ("wire", "codegen")
 STATES = ("supported", "partial", "ignored", "unsupported")
 UNRELEASED = "unreleased"
@@ -92,8 +96,12 @@ class Repo:
             self.git("fetch", "--quiet", "--tags", "--force", "origin")
             self._prepared = True
         if branch not in self._fetched:
-            self.git("fetch", "--quiet", "origin",
-                     f"+refs/heads/{branch}:refs/remotes/origin/{branch}")
+            p = self.git("fetch", "--quiet", "origin",
+                         f"+refs/heads/{branch}:refs/remotes/origin/{branch}", check=False)
+            if p.returncode != 0:
+                if b"couldn't find remote ref" in p.stderr:
+                    raise SourceError(f"branch {branch} not found in {self.name}")
+                self.git("fetch", "--quiet", "origin", f"+refs/heads/{branch}:refs/remotes/origin/{branch}")
             self._fetched.add(branch)
 
     def ref(self, branch):
@@ -254,8 +262,150 @@ def normalise_conformance(rep):
     return Norm(rows, {"subjects": shard})
 
 
+def _obj(rep):
+    if not isinstance(rep, dict):
+        raise ValueError("not an object")
+    return rep
+
+
+def _envelope(rep):
+    return (_str_or_none(rep.get("commit")), _str_or_none(rep.get("toolchain")),
+            _str_or_none(rep.get("run")))
+
+
+def normalise_size(rep):
+    rep = _obj(rep)
+    if not isinstance(rep.get("artifacts"), dict):
+        raise ValueError("no `artifacts` object")
+    rows, shard = {}, {}
+    for aid, a in rep["artifacts"].items():
+        if not isinstance(a, dict):
+            raise ValueError(f"artifact {aid} is not an object")
+        shard[aid] = {"bytes": _num(a.get("bytes")), "gzip_bytes": _num(a.get("gzip_bytes"))}
+        rows[(aid, "bytes")] = (shard[aid]["bytes"], "bytes", "number")
+        if "gzip_bytes" in a:
+            rows[(aid, "gzip_bytes")] = (shard[aid]["gzip_bytes"], "bytes", "number")
+    return Norm(rows, {"artifacts": shard}, *_envelope(rep))
+
+
+def normalise_compile(rep):
+    rep = _obj(rep)
+    if not isinstance(rep.get("units"), dict):
+        raise ValueError("no `units` object")
+    runner = rep.get("runner")
+    metric = "seconds" if runner in (None, "") else f"seconds@{runner}"
+    rows = {}
+    for crate, u in rep["units"].items():
+        rows[(crate, metric)] = (_num(u.get("seconds")) if isinstance(u, dict) else None, "s", "number")
+    rows[("total", metric)] = (_num(rep.get("total_seconds")), "s", "number")
+    shard = {k: v for k, v in rep.items() if k not in ("format", "commit", "toolchain", "run")}
+    return Norm(rows, shard, *_envelope(rep))
+
+
+COVERAGE_METRICS = ("lines", "functions", "branches")
+
+
+def _counts(c):
+    if not isinstance(c, dict):
+        raise ValueError("coverage entry is not an object")
+    out = {}
+    for m in COVERAGE_METRICS:
+        v = c.get(m)
+        if isinstance(v, dict):
+            out[m] = {"covered": _num(v.get("covered")), "total": _num(v.get("total"))}
+    if not out:
+        raise ValueError("coverage entry has no counts")
+    return out
+
+
+def normalise_coverage(rep):
+    rep = _obj(rep)
+    if not isinstance(rep.get("totals"), dict):
+        raise ValueError("no `totals` object")
+    totals = _counts(rep["totals"])
+    units = {u: _counts(c) for u, c in (rep.get("units") or {}).items()}
+    rows = {}
+    for key, c in [("total", totals), *units.items()]:
+        for m, v in c.items():
+            cov, tot = v["covered"], v["total"]
+            pct = round(cov / tot * 100, 2) if cov is not None and tot else None
+            rows[(key, m)] = (pct, "%", "number")
+    return Norm(rows, {"totals": totals, "units": units}, *_envelope(rep))
+
+
 NORMALISERS = {"bench": normalise_bench, "fuzz": normalise_fuzz,
-               "conformance": normalise_conformance}
+               "conformance": normalise_conformance, "size": normalise_size,
+               "compile": normalise_compile, "coverage": normalise_coverage}
+
+
+def better(kind, metric, typ):
+    """Which way is an improvement: "higher", "lower", or None (no direction)."""
+    if typ in ("verdict", "state"):
+        return None
+    if kind == "coverage" or (kind == "fuzz" and metric in ("executions", "corpus")):
+        return "higher"
+    return "lower"
+
+
+# --------------------------------------------------------------------- ci
+
+def _ts(s):
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+def normalise_run(run):
+    """One workflow run (GitHub API shape) as a Norm."""
+    name = run.get("name") or "workflow"
+    started = run.get("run_started_at") or run.get("created_at")
+    dur = None
+    if started and run.get("updated_at"):
+        dur = max(0, int((_ts(run["updated_at"]) - _ts(started)).total_seconds()))
+    concl = run.get("conclusion")
+    verdict = "pass" if concl == "success" else "fail" if concl in ("failure", "timed_out") else None
+    attempt = run.get("run_attempt")
+    rows = {(name, "duration_s"): (dur, "s", "number"),
+            (name, "attempts"): (attempt, None, "number"),
+            (name, "conclusion"): (verdict, None, "verdict")}
+    shard = {"workflow": name, "event": run.get("event"), "conclusion": concl,
+             "run_attempt": attempt, "duration_s": dur, "html_url": run.get("html_url")}
+    return Norm(rows, shard, run.get("head_sha"), None, run.get("html_url"))
+
+
+def github_slug(url):
+    m = re.search(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$", url)
+    if not m:
+        raise SourceError(f"not a GitHub url: {url}")
+    return m.group(1)
+
+
+def fetch_runs(slug, branch, token):
+    """Newest completed runs on `branch` for CI_EVENTS, at most CI_LIMIT, as
+    the API's dicts.  Raises SourceError on any failure."""
+    runs = {}
+    for event in CI_EVENTS:
+        for page in range(1, CI_LIMIT // 100 + 1):
+            url = (f"https://api.github.com/repos/{slug}/actions/runs?status=completed"
+                   f"&branch={branch}&event={event}&per_page=100&page={page}")
+            headers = {"Accept": "application/vnd.github+json",
+                       "User-Agent": "comline-observatory",
+                       "X-GitHub-Api-Version": "2022-11-28"}
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            try:
+                with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as r:
+                    doc = json.load(r)
+            except urllib.error.HTTPError as e:
+                hint = " (rate limited; set GITHUB_TOKEN)" if e.code in (403, 429) else ""
+                raise SourceError(f"GitHub API {e.code} for {slug}{hint}")
+            except (urllib.error.URLError, OSError, ValueError) as e:
+                raise SourceError(f"GitHub API unreachable for {slug}: {e}")
+            batch = doc.get("workflow_runs") or []
+            for r in batch:
+                runs[r["id"]] = r
+            if len(batch) < 100:
+                break
+    newest = sorted(runs.values(), key=lambda r: (r.get("created_at") or "", r["id"]), reverse=True)
+    return newest[:CI_LIMIT]
 
 
 def feature_map(doc):
@@ -327,7 +477,8 @@ def publish_source(out, src, versions, tags, features):
         unit, typ = defs[(key, metric)]
         group, param = split_key(key)
         metrics.append({"key": key, "metric": metric, "unit": unit, "type": typ,
-                        "group": group, "param": param})
+                        "group": group, "param": param,
+                        "better": better(src["kind"], metric, typ)})
 
     def chunk(name, idxs):
         values = [[versions[j].norm.rows.get(m, (None,))[0] for j in idxs] for m in order]
@@ -415,7 +566,9 @@ def load_config(path):
         repos[r["name"]] = r
     sources, seen = [], set()
     for s in doc.get("source", []):
-        for k in ("id", "kind", "title", "repo", "branch", "path"):
+        need = ("id", "kind", "title", "repo") if s.get("kind") == "ci" else \
+            ("id", "kind", "title", "repo", "branch", "path")
+        for k in need:
             if k not in s:
                 raise ConfigError(f"source {s.get('id', '?')}: missing `{k}`")
         if not re.fullmatch(r"[a-z0-9-]+", s["id"]):
@@ -432,13 +585,16 @@ def load_config(path):
         f = s.get("features")
         if f is not None and (f.get("repo") not in repos or "path" not in f):
             raise ConfigError(f"source {s['id']}: bad `features`")
+        if s["kind"] == "ci":
+            s["branch"], s["path"] = repos[s["repo"]]["default_branch"], None
         sources.append(s)
     return repos, sources
 
 
 class Collector:
-    def __init__(self, repo_cfgs, cache, locals_):
+    def __init__(self, repo_cfgs, cache, locals_, network=True):
         self.cfgs, self.cache, self.locals = repo_cfgs, cache, locals_
+        self.network = network
         self._repos, self._failed = {}, {}
 
     def repo(self, name):
@@ -476,8 +632,42 @@ class Collector:
                 pass
         return {}
 
+    def collect_ci(self, src, out):
+        if not self.network:
+            raise SourceError("ci needs the network (--no-network)")
+        cfg = self.cfgs[src["repo"]]
+        slug = github_slug(cfg["url"])
+        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+        runs = fetch_runs(slug, cfg["default_branch"], token)
+        if not runs:
+            raise SourceError("no completed runs on the default branch")
+        repo = self.repo(src["repo"])
+        repo.ref(cfg["default_branch"])  # fetches tags and the branch in a cache clone
+        has_tags = bool(repo.tags())
+        versions, missing = [], 0
+        for r in reversed(runs):  # the API is newest first; walk oldest first
+            norm = normalise_run(r)
+            full = repo.resolve_commit(norm.commit)
+            tag = None
+            if full:
+                norm.commit = full
+                tag = repo.cycle_tag(full) if has_tags else None
+            else:
+                missing += 1
+            started = r.get("run_started_at") or r.get("created_at")
+            versions.append(Version(f"run-{r['id']}", norm.commit or "", utc(started),
+                                    tag.version if tag else UNRELEASED, norm))
+        if missing:
+            warn(f"{src['id']}: {missing} runs measured commits not in {src['repo']}; counted as unreleased")
+        versions.sort(key=lambda v: v.date)  # stable
+        tags = {t.version: t for t in repo.tags()}
+        meta = dict(src, repo_url=cfg["url"])
+        return publish_source(out, meta, versions, tags, None)
+
     def collect(self, src, out):
         """Publish one source; returns the index path or raises SourceError."""
+        if src["kind"] == "ci":
+            return self.collect_ci(src, out)
         repo = self.repo(src["repo"])
         ref = repo.ref(src["branch"])
         commits = repo.history(ref, src["path"])
@@ -515,10 +705,10 @@ class Collector:
         return publish_source(out, meta, versions, tags, features)
 
 
-def run(sources_path, out, cache, locals_, strict):
+def run(sources_path, out, cache, locals_, strict, network=True):
     repos, sources = load_config(sources_path)
     reset_out(out)
-    col = Collector(repos, cache, locals_)
+    col = Collector(repos, cache, locals_, network)
     entries, bad = [], 0
     for src in sources:
         try:
@@ -538,6 +728,8 @@ def main(argv=None):
     ap.add_argument("--cache", default=".cache/repos")
     ap.add_argument("--local", action="append", default=[], metavar="NAME=PATH")
     ap.add_argument("--strict", action="store_true")
+    ap.add_argument("--no-network", action="store_true",
+                    help="don't call the GitHub API: ci sources are unpublished")
     a = ap.parse_args(argv)
     locals_ = {}
     for item in a.local:
@@ -546,7 +738,7 @@ def main(argv=None):
             ap.error(f"--local expects name=path, got {item!r}")
         locals_[name] = path
     try:
-        return run(a.sources, a.out, a.cache, locals_, a.strict)
+        return run(a.sources, a.out, a.cache, locals_, a.strict, not a.no_network)
     except ConfigError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2

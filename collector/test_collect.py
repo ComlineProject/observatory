@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -44,6 +45,39 @@ FEATURES = {"features": [{"id": "envelope", "title": "Envelope", "description": 
                          {"id": "handshake", "title": "Handshake", "description": "d2"}]}
 
 
+NEW_SOURCES = '''
+[[source]]
+id = "size"
+kind = "size"
+title = "Size"
+repo = "r"
+branch = "reports"
+path = "x.size.json"
+
+[[source]]
+id = "compile"
+kind = "compile"
+title = "Compile"
+repo = "r"
+branch = "reports"
+path = "x.compile.json"
+
+[[source]]
+id = "cov"
+kind = "coverage"
+title = "Coverage"
+repo = "r"
+branch = "reports"
+path = "x.coverage.json"
+
+[[source]]
+id = "ci"
+kind = "ci"
+title = "CI"
+repo = "r"
+'''
+
+
 class Fixture(unittest.TestCase):
     """A repo with main (tag v0.1.0, later commits) and reports (bench, fuzz,
     wire, a report measuring a missing commit), cloned so origin/* refs exist."""
@@ -78,6 +112,18 @@ class Fixture(unittest.TestCase):
                         "t2": {"error": "build failed"}},
             "proptest": {"cases": 1000, "properties": {"p_ok": "pass", "p_bad": "fail"}}}},
             "f1", "2026-01-02T09:00:00+00:00")
+        commit(w, {"x.size.json": {"format": 1, "commit": c1, "toolchain": "rustc 1", "run": "http://run/s1",
+                                   "artifacts": {"cli/x": {"bytes": 1000, "gzip_bytes": 400}}}},
+               "s1", "2026-01-02T09:10:00+00:00")
+        commit(w, {"x.size.json": {"format": 1, "commit": c3, "artifacts": {"cli/x": {"bytes": 900}}}},
+               "s2", "2026-01-04T09:10:00+00:00")
+        commit(w, {"x.compile.json": {"format": 1, "commit": c1, "runner": "github-hosted", "profile": "release",
+                                      "total_seconds": 12.5, "units": {"a": {"seconds": 10.0}, "b": {"seconds": 2.5}}}},
+               "k1", "2026-01-02T09:20:00+00:00")
+        commit(w, {"x.coverage.json": {"format": 1, "commit": c1, "tool": "llvm-cov",
+                                       "totals": {"lines": {"covered": 80, "total": 100}, "functions": {"covered": 1, "total": 3}},
+                                       "units": {"a": {"lines": {"covered": 0, "total": 0}}}}},
+               "cv1", "2026-01-02T09:30:00+00:00")
         git(w, "checkout", "-q", "main")
         cls.c = [c1, c2, c3, c4]
         cls.r1 = r1
@@ -305,6 +351,146 @@ class RunTests(Fixture):
         self.assertEqual(shard1["subjects"]["rust"]["handshake"],
                          {"state": "ignored", "proven_by": None, "note": None, "tracking": None,
                           "failing": ["y", "z"]})
+
+
+def api_run(id_, sha, name="build", event="push", conclusion="success", attempt=1,
+            start="2026-01-03T10:00:00Z", end="2026-01-03T10:05:30Z"):
+    return {"id": id_, "name": name, "head_sha": sha, "event": event, "conclusion": conclusion,
+            "run_attempt": attempt, "run_started_at": start, "created_at": start,
+            "updated_at": end, "html_url": f"https://github.com/o/r/actions/runs/{id_}"}
+
+
+class NewKindTests(Fixture):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.out = cls.root / "out"
+        assert collect.main(["--sources", Fixture.sources(cls, extra=NEW_SOURCES, name="n.toml"),
+                             "--out", str(cls.out), "--local", f"r={cls.clone}", "--no-network"]) == 0
+
+    def test_size(self):
+        _, idx = self.load(self.out, "size")
+        self.assertEqual([(m["key"], m["metric"], m["unit"], m["better"]) for m in idx["metrics"]],
+                         [("cli/x", "bytes", "bytes", "lower"), ("cli/x", "gzip_bytes", "bytes", "lower")])
+        self.assertEqual(idx["versions"][0]["cycle"], "0.1.0")
+        self.assertEqual(idx["versions"][0]["run"], "http://run/s1")
+        ch = self.chunk(self.out, idx["releases"])
+        self.assertEqual(ch["values"], [[1000], [400]])
+        shard = self.chunk(self.out, idx["versions"][1]["shard"])
+        self.assertEqual(shard, {"artifacts": {"cli/x": {"bytes": 900, "gzip_bytes": None}}})
+
+    def test_compile(self):
+        _, idx = self.load(self.out, "compile")
+        self.assertEqual([(m["key"], m["metric"], m["unit"]) for m in idx["metrics"]],
+                         [("a", "seconds@github-hosted", "s"), ("b", "seconds@github-hosted", "s"),
+                          ("total", "seconds@github-hosted", "s")])
+        shard = self.chunk(self.out, idx["versions"][0]["shard"])
+        self.assertEqual(shard["total_seconds"], 12.5)
+        self.assertEqual(shard["profile"], "release")
+        self.assertNotIn("commit", shard)
+
+    def test_coverage(self):
+        _, idx = self.load(self.out, "cov")
+        rows = {(m["key"], m["metric"]): m for m in idx["metrics"]}
+        self.assertEqual(rows[("total", "lines")]["better"], "higher")
+        self.assertEqual(rows[("total", "lines")]["unit"], "%")
+        vals = self.chunk(self.out, idx["releases"])["values"]
+        order = [(m["key"], m["metric"]) for m in idx["metrics"]]
+        self.assertEqual(vals[order.index(("total", "lines"))], [80.0])
+        self.assertEqual(vals[order.index(("total", "functions"))], [33.33])
+        self.assertEqual(vals[order.index(("a", "lines"))], [None])
+
+    def test_better_elsewhere(self):
+        _, idx = self.load(self.out, "fuzz")
+        b = {(m["key"], m["metric"]): m["better"] for m in idx["metrics"]}
+        self.assertEqual(b[("t1", "executions")], "higher")
+        self.assertEqual(b[("t1", "corpus")], "higher")
+        self.assertEqual(b[("t1", "findings")], "lower")
+        self.assertIsNone(b[("proptest/p_ok", "verdict")])
+        _, wire = self.load(self.out, "wire")
+        self.assertTrue(all(m["better"] is None for m in wire["metrics"]))
+
+
+class CiTests(Fixture):
+    def run_ci(self, runs, out, extra_args=()):
+        with mock.patch.object(collect, "fetch_runs", return_value=runs) as f, \
+                mock.patch.object(collect, "github_slug", return_value="o/r"):
+            code = self.collect(out, extra_args, extra=NEW_SOURCES)
+        return code, f
+
+    def test_ci(self):
+        c = self.c
+        runs = [api_run(3, c[2], end="2026-01-04T10:00:07Z", start="2026-01-04T10:00:00Z", conclusion="failure", attempt=2),
+                api_run(2, c[1], name="lint", event="schedule", conclusion="cancelled"),
+                api_run(1, "f" * 40)]
+        out = self.root / "ci1"
+        code, f = self.run_ci(runs, out)
+        self.assertEqual(code, 0)
+        entry, idx = self.load(out, "ci")
+        self.assertEqual(entry["status"], "ok")
+        self.assertIsNone(idx["path"])
+        self.assertEqual(idx["branch"], "main")
+        self.assertEqual([v["id"] for v in idx["versions"]], ["run-1", "run-2", "run-3"])
+        self.assertEqual([v["cycle"] for v in idx["versions"]], ["unreleased", "0.1.0", "unreleased"])
+        self.assertEqual(idx["versions"][1]["commit"], c[1])
+        self.assertEqual(idx["versions"][2]["run"], "https://github.com/o/r/actions/runs/3")
+        order = [(m["key"], m["metric"]) for m in idx["metrics"]]
+        self.assertEqual(order, [("build", "attempts"), ("build", "conclusion"), ("build", "duration_s"),
+                                 ("lint", "attempts"), ("lint", "conclusion"), ("lint", "duration_s")])
+        ch = self.chunk(out, next(c_ for c_ in idx["cycles"] if c_["id"] == "unreleased")["chunk"])
+        self.assertEqual(ch["versions"], [0, 2])
+        self.assertEqual(ch["values"][order.index(("build", "duration_s"))], [330, 7])
+        self.assertEqual(ch["values"][order.index(("build", "conclusion"))], ["pass", "fail"])
+        self.assertEqual(ch["values"][order.index(("build", "attempts"))], [1, 2])
+        self.assertEqual(ch["values"][order.index(("lint", "duration_s"))], [None, None])
+        rel = self.chunk(out, next(c_ for c_ in idx["cycles"] if c_["id"] == "0.1.0")["chunk"])
+        self.assertEqual(rel["values"][order.index(("lint", "conclusion"))], [None])
+        self.assertEqual(idx["metrics"][1]["better"], None)
+        self.assertEqual(idx["metrics"][2]["better"], "lower")
+        shard = self.chunk(out, idx["versions"][2]["shard"])
+        self.assertEqual(shard["conclusion"], "failure")
+        self.assertEqual(shard["workflow"], "build")
+
+    def test_ci_failure_is_unpublished(self):
+        def boom(*a):
+            raise collect.SourceError("GitHub API 403 for o/r (rate limited; set GITHUB_TOKEN)")
+        with mock.patch.object(collect, "fetch_runs", side_effect=boom), \
+                mock.patch.object(collect, "github_slug", return_value="o/r"):
+            self.assertEqual(self.collect(self.root / "ci2", extra=NEW_SOURCES), 0)
+        entry, _ = self.load(self.root / "ci2", "ci")
+        self.assertEqual(entry["status"], "unpublished")
+        self.assertIn("rate limited", entry["reason"])
+
+    def test_no_network(self):
+        with mock.patch.object(collect, "fetch_runs") as f:
+            self.assertEqual(self.collect(self.root / "ci3", ["--no-network"], extra=NEW_SOURCES), 0)
+            f.assert_not_called()
+        entry, _ = self.load(self.root / "ci3", "ci")
+        self.assertEqual(entry["status"], "unpublished")
+        self.assertIn("--no-network", entry["reason"])
+        self.assertEqual(self.load(self.root / "ci3", "bench")[0]["status"], "ok")
+
+
+class FetchRunsTests(unittest.TestCase):
+    def test_paginates_filters_and_caps(self):
+        pages = {}
+
+        def fake(req, timeout=0):
+            import io
+            from urllib.parse import parse_qs, urlparse
+            q = parse_qs(urlparse(req.full_url).query)
+            ev, page = q["event"][0], int(q["page"][0])
+            pages.setdefault(ev, []).append(page)
+            n = 150 if ev == "push" and page == 1 else 0
+            base = {"push": 0, "schedule": 10000, "workflow_dispatch": 20000}[ev]
+            batch = [{"id": base + i + 1000 * page, "created_at": f"2026-01-01T00:{i % 60:02d}:00Z"} for i in range(100 if page == 1 and ev == "push" else 5 if page == 2 and ev == "push" else 0)]
+            self.assertEqual(req.get_header("Authorization"), "Bearer tok")
+            return io.StringIO(json.dumps({"workflow_runs": batch}))
+        with mock.patch.object(collect.urllib.request, "urlopen", fake):
+            runs = collect.fetch_runs("o/r", "main", "tok")
+        self.assertEqual(len(runs), 105)
+        self.assertEqual(pages["push"], [1, 2])
+        self.assertEqual(pages["schedule"], [1])
 
 
 class NormaliseTests(unittest.TestCase):

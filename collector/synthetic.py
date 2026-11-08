@@ -46,7 +46,9 @@ def build(out, scale, seed=7):
     def emit(src, rows, tags, make_report, features=None):
         versions = []
         for i, (vid, commit, date, cycle) in enumerate(rows):
-            norm = collect.NORMALISERS[src["kind"]](make_report(i, commit, date))
+            rep = make_report(i, commit, date)
+            norm = (collect.normalise_run if src["kind"] == "ci"
+                    else collect.NORMALISERS[src["kind"]])(rep)
             norm.commit = commit
             versions.append(collect.Version(vid, commit, date, cycle, norm))
         src = dict(src, repo_url=f"https://example.invalid/{src['repo']}", path="report.json")
@@ -148,6 +150,82 @@ def build(out, scale, seed=7):
 
     emit({"id": "syn-bench-ts", "kind": "bench", "title": "Synthetic TS bench", "repo": "syn",
           "branch": "reports"}, rows, tags, bench_ts)
+
+    # size / compile / coverage / ci, drawn after everything else so the
+    # sources above don't move.
+    rows, tags = timeline(20 * scale, 12, rng)
+    arts = [f"{p}/{t}" for p in ("ffi", "cli", "wasm", "lib")[:4]
+            for t in ("x86_64-linux-release", "aarch64-linux-release", "wasm32-release")]
+    arts = [f"{a}/v{k}" if scale > 1 else a for k in range(scale) for a in arts[:6]]
+    sz = {a: rng.randint(200_000, 9_000_000) for a in arts}
+
+    def size(i, commit, date):
+        for a in arts:
+            if rng.random() < 0.2:
+                sz[a] = max(1000, int(sz[a] * (1 + rng.uniform(-0.03, 0.04))))
+        return {"commit": commit, "toolchain": "rustc 1.98.0 (synthetic)", "run": None,
+                "artifacts": {a: {"bytes": v, "gzip_bytes": int(v * 0.38)} for a, v in sz.items()}}
+
+    emit({"id": "syn-size", "kind": "size", "title": "Synthetic size", "repo": "syn",
+          "branch": "reports"}, rows, tags, size)
+
+    rows, tags = timeline(20 * scale, 14, rng)
+    crates = [f"crate-{c}" for c in range(8 * scale)]
+    ct = {c: rng.uniform(1, 40) for c in crates}
+
+    def compile_(i, commit, date):
+        for c in crates:
+            ct[c] = max(0.2, ct[c] * (1 + rng.uniform(-0.15, 0.15)))
+        return {"commit": commit, "toolchain": "nightly (synthetic)", "run": None,
+                "runner": "github-hosted", "profile": "release",
+                "total_seconds": sum(ct.values()) * 0.7,
+                "units": {c: {"seconds": round(v, 2)} for c, v in ct.items()}}
+
+    emit({"id": "syn-compile", "kind": "compile", "title": "Synthetic compile", "repo": "syn",
+          "branch": "reports"}, rows, tags, compile_)
+
+    rows, tags = timeline(20 * scale, 14, rng)
+    units = [f"unit-{u}" for u in range(6 * scale)]
+    tot = {u: rng.randint(200, 5000) for u in units}
+    cov = {u: rng.uniform(0.5, 0.95) for u in units}
+
+    def coverage(i, commit, date):
+        def c(u):
+            return {k: {"covered": int(tot[u] * f * cov[u]), "total": int(tot[u] * f)}
+                    for k, f in (("lines", 1), ("functions", 0.1), ("branches", 0.3))}
+        for u in units:
+            cov[u] = min(0.99, max(0.2, cov[u] + rng.uniform(-0.02, 0.02)))
+        per = {u: c(u) for u in units}
+        return {"commit": commit, "toolchain": "nightly (synthetic)", "run": None,
+                "tool": "cargo-llvm-cov",
+                "totals": {k: {"covered": sum(per[u][k]["covered"] for u in units),
+                               "total": sum(per[u][k]["total"] for u in units)}
+                           for k in ("lines", "functions", "branches")},
+                "units": per}
+
+    emit({"id": "syn-coverage", "kind": "coverage", "title": "Synthetic coverage", "repo": "syn",
+          "branch": "reports"}, rows, tags, coverage)
+
+    # ci: one version per run, each with a single workflow's values
+    rows, tags = timeline(min(1000, 60 * scale), 3, rng)  # the collector keeps 1000 runs at most
+    flows = [("ci", "push"), ("lint", "push"), ("fuzz", "schedule"), ("bench", "schedule"),
+             ("docs", "push"), ("release", "workflow_dispatch")]
+
+    def ci(i, commit, date):
+        name, event = flows[i % len(flows)]
+        start = datetime.fromisoformat(date.replace("Z", "+00:00"))
+        secs = int(rng.uniform(60, 900) * (3 if name == "fuzz" else 1))
+        end = start + timedelta(seconds=secs)
+        failed = rng.random() < 0.08
+        return {"id": 10_000 + i, "name": name, "head_sha": commit, "event": event,
+                "conclusion": "failure" if failed else "success",
+                "run_attempt": 2 if rng.random() < 0.05 else 1,
+                "run_started_at": date, "created_at": date,
+                "updated_at": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "html_url": f"https://example.invalid/runs/{10_000 + i}"}
+
+    emit({"id": "syn-ci", "kind": "ci", "title": "Synthetic CI", "repo": "syn",
+          "branch": "main"}, rows, tags, ci)
 
     collect.write_manifest(out, entries)
 

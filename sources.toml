@@ -18,6 +18,48 @@ url = "https://github.com/ComlineProject/comline-typescript"
 default_branch = "main"
 tag = '^v(?P<version>\d+\.\d+\.\d+(?:[-+].*)?)$'
 
+[[repo]]
+name = "core"
+url = "https://github.com/ComlineProject/core"
+default_branch = "master"
+tag = '^comline-core-v(?P<version>\d+\.\d+\.\d+(?:[-+].*)?)$'
+
+[[repo]]
+name = "cli"
+url = "https://github.com/ComlineProject/cli"
+default_branch = "main"
+tag = '^v(?P<version>\d+\.\d+\.\d+(?:[-+].*)?)$'
+
+[[repo]]
+name = "simulator"
+url = "https://github.com/ComlineProject/simulator"
+default_branch = "main"
+tag = '^v(?P<version>\d+\.\d+\.\d+(?:[-+].*)?)$'
+
+[[repo]]
+name = "language-server"
+url = "https://github.com/ComlineProject/language-server"
+default_branch = "master"
+tag = '^v(?P<version>\d+\.\d+\.\d+(?:[-+].*)?)$'
+
+[[repo]]
+name = "comline-rust"
+url = "https://github.com/ComlineProject/comline-rust"
+default_branch = "main"
+tag = '^v(?P<version>\d+\.\d+\.\d+(?:[-+].*)?)$'
+
+[[repo]]
+name = "docs"
+url = "https://github.com/ComlineProject/docs"
+default_branch = "main"
+tag = '^v(?P<version>\d+\.\d+\.\d+(?:[-+].*)?)$'
+
+[[repo]]
+name = "observatory"
+url = "https://github.com/ComlineProject/observatory"
+default_branch = "main"
+tag = '^v(?P<version>\d+\.\d+\.\d+(?:[-+].*)?)$'
+
 # Benchmarks
 
 [[source]]
@@ -35,6 +77,14 @@ title = "TypeScript runtime"
 repo = "comline-typescript"
 branch = "reports"
 path = "typescript.bench.json"
+
+[[source]]
+id = "core-bench"
+kind = "bench"
+title = "Parser"
+repo = "core"
+branch = "reports"
+path = "core.bench.json"
 
 # Fuzzing
 
@@ -84,3 +134,167 @@ repo = "comline-typescript"
 branch = "main"
 path = "runtime/conformance-report.json"
 features = { repo = "runtime", path = "runtime/conformance/features.json" }
+
+# Binary size
+
+[[source]]
+id = "runtime-size"
+kind = "size"
+title = "Rust runtime"
+repo = "runtime"
+branch = "reports"
+path = "rust.size.json"
+
+[[source]]
+id = "cli-size"
+kind = "size"
+title = "CLI"
+repo = "cli"
+branch = "reports"
+path = "cli.size.json"
+
+[[source]]
+id = "simulator-size"
+kind = "size"
+title = "Simulator"
+repo = "simulator"
+branch = "reports"
+path = "simulator.size.json"
+
+[[source]]
+id = "typescript-size"
+kind = "size"
+title = "TypeScript runtime"
+repo = "comline-typescript"
+branch = "reports"
+path = "typescript.size.json"
+
+# Compile time
+
+[[source]]
+id = "runtime-compile"
+kind = "compile"
+title = "Rust runtime"
+repo = "runtime"
+branch = "reports"
+path = "rust.compile.json"
+
+[[source]]
+id = "core-compile"
+kind = "compile"
+title = "Core"
+repo = "core"
+branch = "reports"
+path = "core.compile.json"
+
+[[source]]
+id = "cli-compile"
+kind = "compile"
+title = "CLI"
+repo = "cli"
+branch = "reports"
+path = "cli.compile.json"
+
+# Test coverage
+
+[[source]]
+id = "runtime-coverage"
+kind = "coverage"
+title = "Rust runtime"
+repo = "runtime"
+branch = "reports"
+path = "rust.coverage.json"
+
+[[source]]
+id = "core-coverage"
+kind = "coverage"
+title = "Core"
+repo = "core"
+branch = "reports"
+path = "core.coverage.json"
+
+[[source]]
+id = "cli-coverage"
+kind = "coverage"
+title = "CLI"
+repo = "cli"
+branch = "reports"
+path = "cli.coverage.json"
+
+[[source]]
+id = "generation-coverage"
+kind = "coverage"
+title = "Generation"
+repo = "generation"
+branch = "reports"
+path = "generation.coverage.json"
+
+[[source]]
+id = "typescript-coverage"
+kind = "coverage"
+title = "TypeScript runtime"
+repo = "comline-typescript"
+branch = "reports"
+path = "typescript.coverage.json"
+
+# Continuous integration (read from the GitHub API; no report file)
+
+[[source]]
+id = "core-ci"
+kind = "ci"
+title = "Core"
+repo = "core"
+
+[[source]]
+id = "cli-ci"
+kind = "ci"
+title = "CLI"
+repo = "cli"
+
+[[source]]
+id = "generation-ci"
+kind = "ci"
+title = "Generation"
+repo = "generation"
+
+[[source]]
+id = "runtime-ci"
+kind = "ci"
+title = "Runtime"
+repo = "runtime"
+
+[[source]]
+id = "comline-typescript-ci"
+kind = "ci"
+title = "TypeScript runtime"
+repo = "comline-typescript"
+
+[[source]]
+id = "comline-rust-ci"
+kind = "ci"
+title = "Rust bindings"
+repo = "comline-rust"
+
+[[source]]
+id = "language-server-ci"
+kind = "ci"
+title = "Language server"
+repo = "language-server"
+
+[[source]]
+id = "simulator-ci"
+kind = "ci"
+title = "Simulator"
+repo = "simulator"
+
+[[source]]
+id = "docs-ci"
+kind = "ci"
+title = "Docs"
+repo = "docs"
+
+[[source]]
+id = "observatory-ci"
+kind = "ci"
+title = "Observatory"
+repo = "observatory"

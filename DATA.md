@@ -16,7 +16,7 @@ tag = '^v(?P<version>\d+\.\d+\.\d+(?:[-+].*)?)$'
 
 [[source]]
 id = "runtime-bench"                            # [a-z0-9-]+, unique
-kind = "bench"                                  # bench | fuzz | conformance
+kind = "bench"                                  # bench | fuzz | conformance | size | compile | coverage | ci
 title = "Rust runtime"
 repo = "runtime"
 branch = "reports"
@@ -109,7 +109,7 @@ collector exits non-zero only on a bad `sources.toml` or `--strict`.
   "releases": "sources/runtime-bench/releases.<hash>.json",
   "metrics": [ { "key": "comline2/answer", "metric": "instructions",
                  "unit": "instructions", "type": "number",
-                 "group": "comline2", "param": null } ],
+                 "group": "comline2", "param": null, "better": "lower" } ],
   "features": null
 }
 ```
@@ -122,6 +122,8 @@ collector exits non-zero only on a bad `sources.toml` or `--strict`.
   last segment when it is a plain integer, written as a JSON number
   (`ffi/abi/…/message/4096` → group `ffi/abi/…/message`, param `4096`), so
   payload-size families line up; `null` otherwise.
+- `better` is `"higher"`, `"lower"` or `null`: which direction is an improvement
+  (see "Which way is better"). `null` for `verdict` and `state` rows.
 - `unit` is `null` for `verdict` and `state` rows. Fuzz units: `executions`,
   `inputs` (corpus), `findings`, `s` (seconds), `cases`. A format-2 bench
   metric's unit is its metric name.
@@ -203,17 +205,97 @@ a point in time: each source at its newest version on or before that date.
 Labels can repeat across sources, so the site's URLs name a version as
 `<source id>:<label>` (`?a=codegen:unreleased-dev.1`).
 
+### `size`
+
+Input (`<name>.size.json`):
+`{ "format": 1, "commit", "toolchain", "run", "artifacts": { "<id>": { "bytes": N, "gzip_bytes": N? } } }`.
+`<id>` names the artifact and how it was built, path-like
+(`ffi/cdylib/x86_64-linux-release`, `ffi/wasm32-release`, `cli/x86_64-linux-release`).
+
+- Metric rows: `key` = artifact id, `metric` ∈ `bytes`, `gzip_bytes`, `unit` =
+  `"bytes"`, `type` = `"number"`. Lower is better.
+- Shard: `{ "artifacts": { "<id>": { "bytes", "gzip_bytes" } } }`.
+
+### `compile`
+
+Input (`<name>.compile.json`):
+`{ "format": 1, "commit", "toolchain", "run", "runner", "profile", "total_seconds": x, "units": { "<crate>": { "seconds": x } } }`
+(a clean build of the workspace; the `report-rust-compile` action reads the unit
+data embedded in `cargo build --timings`'s report, because cargo has no
+`--timings=json` output, nightly included; `total_seconds` is the end of the
+last unit, `units` sums a crate's units, build script included).
+
+- Metric rows: `key` = crate, plus `key` = `total` for `total_seconds`;
+  `metric` = `"seconds@<runner>"` (wall time is per runner, like bench format
+  2), `unit` = `"s"`, `type` = `"number"`. Lower is better.
+- Shard: the input without the envelope fields.
+
+### `coverage`
+
+Input (`<name>.coverage.json`):
+`{ "format": 1, "commit", "toolchain", "run", "tool", "totals": C, "units": { "<unit>": C } }`
+where `C` = `{ "lines": { "covered", "total" }, "functions": { … }?, "branches": { … }? }`
+and a unit is a crate (Rust) or a top-level source directory (TypeScript).
+
+- Metric rows: `key` = unit, plus `key` = `total` for `totals`; `metric` ∈
+  `lines`, `functions`, `branches` (those present); value = covered ÷ total ×
+  100, rounded to 2 decimals (`null` when total is 0); `unit` = `"%"`, `type` =
+  `"number"`. **Higher is better.**
+- Shard: `{ "totals": C, "units": { … } }` with the raw counts.
+
+### `ci`
+
+No producer and no report file: the collector reads workflow runs from the
+GitHub REST API (`GET /repos/{owner}/{repo}/actions/runs`, token from
+`GITHUB_TOKEN` or `GH_TOKEN` when set). A source is
+`{ id, kind = "ci", title, repo }`.
+
+- **Versions** are completed runs on the repo's `default_branch` whose event is
+  `push`, `schedule` or `workflow_dispatch`, newest 1000 at most. `id` =
+  `run-<run id>`, `commit` = the run's `head_sha`, `date` = `run_started_at`
+  (else `created_at`), `run` = its `html_url`; cycles and labels as for every
+  version.
+- Metric rows: `key` = workflow name; `metric` ∈ `duration_s` (`updated_at` −
+  `run_started_at`; `unit` `"s"`), `attempts` (`run_attempt`; a value above 1
+  is a rerun), `conclusion` (`type` `"verdict"`: `success` → `"pass"`,
+  `failure` / `timed_out` → `"fail"`, anything else → `null`). A version only
+  has values for its own workflow; the rest are `null`.
+- `attempts` has `unit` `null` and `better` `"lower"`; `duration_s` has `unit`
+  `"s"`, `better` `"lower"`; `conclusion` has `better` `null`.
+- A ci version belongs to exactly one workflow: the one whose rows are non-null
+  in it (the rest are `null`).
+- A "last N days" window over ci versions counts back from the **newest run's**
+  `date`, not from the current time, so a quiet repo still shows its history.
+- Sizes are decimal: 1 KB = 1000 bytes, 1 MB = 1000 KB (sites format `bytes` that way).
+- Shard: `{ "workflow", "event", "conclusion", "run_attempt", "duration_s", "html_url" }`.
+- Without a token the API allows 60 requests an hour, which is enough for a
+  local run of a few sources; CI passes the job's token.
+
+### Which way is better
+
+The site needs to know whether a rise is good or bad: `coverage`, and fuzz
+`executions` and `corpus`, are higher-is-better; every other number is
+lower-is-better. The collector writes the answer into each metric row as
+`better`; `verdict` and `state` rows have `null`. (A ci `attempts` count is
+lower-is-better like the rest.)
+
 ## Running
 
 ```
 python3 collector/collect.py --sources sources.toml --out site/static/data \
-    [--cache .cache/repos] [--local runtime=/path/to/runtime ...] [--strict]
+    [--cache .cache/repos] [--local runtime=/path/to/runtime ...] [--strict] [--no-network]
 ```
 
 - `--cache` keeps blobless clones between runs (`git clone --filter=blob:none
   --no-checkout`, then `git fetch --tags` and each needed branch).
 - `--local name=path` reads an existing checkout instead of cloning. It uses
   that checkout's `origin/<branch>` refs and tags, and never writes to it.
+- `--no-network` skips the GitHub API: `ci` sources are unpublished ("ci needs
+  the network"). Repositories are still cloned or fetched in the cache.
+- A `ci` source's `branch` in the index is the repo's `default_branch` and its
+  `path` is `null`; the repo clone (cache or `--local`) is used for tags and
+  ancestry only, so a repo without a matching tag has every run `unreleased`.
+  An API failure (rate limit, network) unpublishes that source with the reason.
 - Exit status: `0` on success, `2` on a bad `sources.toml` (or bad
   arguments), `1` with `--strict` when any source is unpublished. If a
   `--local` or cache repository can't be read the sources using it are

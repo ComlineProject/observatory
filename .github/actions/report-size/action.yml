@@ -1,0 +1,28 @@
+name: Report artifact sizes
+description: >
+  Write a `size` report (DATA.md, kind `size`): the byte size and the gzip -9
+  size of each named build artifact. Publish the file with `publish-report`.
+
+inputs:
+  output:
+    description: The report file to write, e.g. `reports/rust.size.json`.
+    required: true
+  artifacts:
+    description: >
+      One `id=path` per line. `id` is path-like and names the artifact and how
+      it was built (`ffi/cdylib/x86_64-linux-release`). `path` may be a glob if
+      it matches exactly one file.
+    required: true
+  toolchain:
+    description: The toolchain string to record (e.g. the output of `rustc --version`); optional.
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        OUTPUT: ${{ inputs.output }}
+        ARTIFACTS: ${{ inputs.artifacts }}
+        TOOLCHAIN: ${{ inputs.toolchain }}
+      run: python3 "$GITHUB_ACTION_PATH/report-size.py" --output "$OUTPUT" --toolchain "$TOOLCHAIN" --artifacts "$ARTIFACTS"

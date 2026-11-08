@@ -1,0 +1,33 @@
+name: Report Rust coverage
+description: >
+  Run `cargo llvm-cov` and write a `coverage` report (DATA.md, kind `coverage`):
+  line, function and (when present) branch counts per crate and in total.
+  Publish the file with `publish-report`. The calling job sets up the Rust
+  toolchain and checks out the code.
+
+inputs:
+  output:
+    description: The report file to write, e.g. `reports/rust.coverage.json`.
+    required: true
+  args:
+    description: Extra arguments for `cargo llvm-cov`.
+    default: --workspace
+
+runs:
+  using: composite
+  steps:
+    - uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-llvm-cov
+    - shell: bash
+      run: rustup component add llvm-tools-preview
+    - shell: bash
+      env:
+        OUTPUT: ${{ inputs.output }}
+        ARGS: ${{ inputs.args }}
+      run: |
+        tmp="$(mktemp)"
+        # shellcheck disable=SC2086 # args are space-separated on purpose
+        cargo llvm-cov $ARGS --json --summary-only --output-path "$tmp"
+        python3 "$GITHUB_ACTION_PATH/report-coverage.py" --input "$tmp" --output "$OUTPUT" \
+          --tool "$(cargo llvm-cov --version)" --toolchain "$(rustc --version)"
