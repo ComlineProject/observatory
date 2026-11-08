@@ -14,6 +14,7 @@
 	}
 	let cards = $state<Card[]>([]);
 	let err = $state('');
+	let twoBenches = $derived(cards.filter((c) => c.m.kind === 'bench' && c.m.status === 'ok').length >= 2);
 
 	function href(m: ManifestSource) {
 		if (m.kind === 'conformance') return `${base}/conformance/${m.matrix}/`;
@@ -133,6 +134,13 @@
 			{/if}
 		</a>
 	{/each}
+	{#if twoBenches}
+		<a class="card" href="{base}/ratio/" data-source="ratio">
+			<div class="kind muted">bench · cross-runtime</div>
+			<div class="title">Benchmarks: ratio to Rust</div>
+			<div class="secondary">Instruction counts of another runtime over the Rust reference, per shared workload.</div>
+		</a>
+	{/if}
 </div>
 
 <style>

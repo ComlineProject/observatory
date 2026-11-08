@@ -8,6 +8,7 @@ const manifest = JSON.parse(readFileSync(new URL('manifest.json', DATA), 'utf8')
 };
 const ok = manifest.sources.filter((s) => s.status === 'ok');
 const bench = ok.find((s) => s.kind === 'bench');
+const twoBench = ok.filter((s) => s.kind === 'bench').length >= 2;
 const fuzz = ok.find((s) => s.kind === 'fuzz');
 const matrices = [...new Set(ok.filter((s) => s.kind === 'conformance').map((s) => s.matrix!))];
 
@@ -42,6 +43,7 @@ async function open(page: Page, path: string, chart: boolean) {
 const pages: [string, string, boolean][] = [
 	['overview', '', false],
 	...(bench ? [['bench', `bench/${bench.id}/`, true] as [string, string, boolean]] : []),
+	...(twoBench ? [['ratio', 'ratio/', false] as [string, string, boolean]] : []),
 	...(fuzz ? [['fuzz', `fuzz/${fuzz.id}/`, true] as [string, string, boolean]] : []),
 	...matrices.map((m) => [`conformance ${m}`, `conformance/${m}/`, false] as [string, string, boolean])
 ];

@@ -108,6 +108,7 @@ export class Source {
 
 	constructor(index: Index) {
 		this.index = index;
+		this.multiMetric = index.kind === 'bench' && new Set(index.metrics.map((m) => m.metric)).size > 1;
 		const n = index.versions.length;
 		this.columns = index.metrics.map(() => new Array(n));
 		index.versions.forEach((v, i) => this.byLabel.set(v.label, i));
@@ -184,6 +185,12 @@ export class Source {
 				hi = i;
 			}
 		return [lo, hi];
+	}
+	/** More than one metric name (a bench with e.g. `instructions` and `instructions-opt`). */
+	multiMetric: boolean;
+	/** A row's name: the key, with the metric when it isn't the plain instruction count or the source has several. */
+	nameOf(m: Metric): string {
+		return this.multiMetric ? `${m.key} · ${m.metric}` : metricName(m);
 	}
 	latest() {
 		return this.index.versions.length - 1;

@@ -1,7 +1,7 @@
 <script lang="ts">
 	// N versions side by side: one column per chosen version.
 	import VirtualTable from './VirtualTable.svelte';
-	import { fmtNum, metricName, type Source, type Value } from './data.svelte';
+	import { fmtNum, type Source, type Value } from './data.svelte';
 
 	let { src, vs, group = '', text = '' }: { src: Source; vs: number[]; group?: string; text?: string } = $props();
 
@@ -15,7 +15,7 @@
 		const out: Row[] = [];
 		src.index.metrics.forEach((m, i) => {
 			if (group && m.group !== group && !(m.group ?? '').startsWith(group + '/')) return;
-			const name = metricName(m);
+			const name = src.nameOf(m);
 			if (t && !name.toLowerCase().includes(t)) return;
 			out.push({ name, vals: vs.map((v) => src.columns[i][v]) });
 		});

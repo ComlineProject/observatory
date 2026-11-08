@@ -122,6 +122,33 @@ def build(out, scale, seed=7):
         emit({"id": sid, "kind": "conformance", "title": title, "repo": "syn",
               "branch": "main", "matrix": matrix}, rows, tags, conformance(subjects), features)
 
+    # A second bench source (a "TypeScript" runtime): ~60% of syn-bench's keys at 2-8x
+    # their values, plus keys of its own, over fewer versions. Drawn last so the
+    # other sources' data doesn't move.
+    rows, tags = timeline(max(3, 20 * scale), 16, rng)
+    shared = [m for m in range(len(ids)) if rng.random() < 0.6]
+    factor = {m: rng.uniform(2, 8) for m in shared}
+    own = [f"ts{m // 6}/own{m % 6}/{sizes[m % 3]}" for m in range(max(10, 40 * scale))]
+    own_base = [rng.randint(500, 400000) for _ in own]
+
+    ts_base = {ids[m]: int(base[m] * factor[m]) for m in shared}
+    ts_base.update(zip(own, own_base))
+    # Format 2: the interpreter-only count and the optimising tier's (cheaper).
+    opt = {name: rng.uniform(0.2, 0.5) for name in ts_base}
+
+    def bench_ts(i, commit, date):
+        # Like the Rust one, counts move in steps, a tenth of them per version.
+        benches = {}
+        for name, v in ts_base.items():
+            if rng.random() < 0.10:
+                v = ts_base[name] = max(10, int(v * (1 + rng.uniform(-0.02, 0.025))))
+            benches[name] = {"instructions": {"value": v},
+                             "instructions-opt": {"value": max(10, int(v * opt[name]))}}
+        return {"commit": commit, "toolchain": "node 22 (synthetic)", "benches": benches}
+
+    emit({"id": "syn-bench-ts", "kind": "bench", "title": "Synthetic TS bench", "repo": "syn",
+          "branch": "reports"}, rows, tags, bench_ts)
+
     collect.write_manifest(out, entries)
 
 

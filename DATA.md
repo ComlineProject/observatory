@@ -156,10 +156,12 @@ Input (format 1, today's `rust.bench.json`):
 
 - Metric rows: `key` = bench id, `metric` = `"instructions"`, `unit` =
   `"instructions"`, `type` = `"number"`.
-- Planned input (format 2, see the proposal's "several metrics per benchmark"):
-  `benches: { "<id>": { "<metric>": { "value", "runner", "spread"? } } }`. The
-  collector accepts both. A format-2 metric becomes `metric` = `"<metric>@<runner>"`,
-  so values from different runners are never in one series.
+- Input format 2 (see the proposal's "several metrics per benchmark"):
+  `benches: { "<id>": { "<metric>": { "value", "runner"?, "spread"? } } }`. The
+  collector accepts both. A format-2 metric becomes `metric` = `"<metric>"` when
+  `runner` is absent or null, and `"<metric>@<runner>"` when it is present, so
+  values from different runners are never in one series. `spread` is not carried
+  yet.
 - Shard: `{ "benches": { "<id>": { "<metric>": value } } }`.
 
 ### `fuzz`

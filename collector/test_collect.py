@@ -313,6 +313,12 @@ class NormaliseTests(unittest.TestCase):
         self.assertEqual(n.rows, {("x", "wall@ci-a"): (5, "wall", "number")})
         self.assertEqual(n.shard, {"benches": {"x": {"wall@ci-a": 5}}})
 
+    def test_bench_format2_without_runner(self):
+        n = collect.normalise_bench({"benches": {"x": {
+            "instructions": {"value": 9, "spread": 0}, "instructions-opt": {"value": 3, "runner": None}}}})
+        self.assertEqual(n.rows, {("x", "instructions"): (9, "instructions", "number"),
+                                  ("x", "instructions-opt"): (3, "instructions-opt", "number")})
+
     def test_bench_format1(self):
         n = collect.normalise_bench({"commit": "ab", "benches": {"x": {"ir": 7}}})
         self.assertEqual(n.rows, {("x", "instructions"): (7, "instructions", "number")})
