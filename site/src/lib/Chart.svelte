@@ -34,6 +34,7 @@
 		series,
 		xLabel = (x: number) => String(x),
 		marks = [],
+		pins = [],
 		dots = [],
 		spreads = [],
 		xRange = null,
@@ -52,6 +53,8 @@
 		series: SeriesSpec[];
 		xLabel?: (x: number) => string;
 		marks?: XMark[];
+		/** Chosen versions: a solid ink line labelled at the foot, and every series' point there emphasised. */
+		pins?: XMark[];
 		dots?: Dot[];
 		/** Per series, each value's relative spread: drawn as a band of value × (1 ± spread / 2). */
 		spreads?: ((number | null | undefined)[] | null)[];
@@ -105,6 +108,7 @@
 		ctx.setLineDash([4 * devicePixelRatio, 4 * devicePixelRatio]);
 		ctx.font = `${11 * devicePixelRatio}px system-ui, sans-serif`;
 		ctx.textBaseline = 'top';
+		ctx.textAlign = 'left';
 		let lastTextEnd = -Infinity;
 		for (const m of marks) {
 			const x = Math.round(u.valToPos(m.x, 'x', true));
@@ -152,6 +156,66 @@
 			}
 			flush();
 		});
+		ctx.restore();
+	}
+
+	// Pins use the ink colours (never a series or status hue): a solid line in
+	// --text-secondary, the label in an ink pill at the plot's foot (release
+	// marks are dashed and labelled at the top), and each series' point at a
+	// pin enlarged, filled with its colour and ringed in ink.
+	function drawPins(u: uPlot) {
+		if (!pins.length) return;
+		const ctx = u.ctx;
+		const dpr = devicePixelRatio;
+		const { top, height: h, left, width } = u.bbox;
+		const ink = cssVar('--text-primary');
+		const surface = cssVar('--surface-1');
+		ctx.save();
+		ctx.font = `600 ${11 * dpr}px system-ui, sans-serif`;
+		ctx.textBaseline = 'middle';
+		ctx.textAlign = 'left';
+		const ph = 16 * dpr;
+		let lastEnd = Infinity;
+		// Right to left, so the newest label wins when two would overlap.
+		const xs = pins.map((p) => ({ p, x: Math.round(u.valToPos(p.x, 'x', true)) })).filter(({ x }) => x >= left && x <= left + width);
+		xs.sort((a, b) => b.x - a.x);
+		for (const { x } of xs) {
+			ctx.strokeStyle = cssVar('--text-secondary');
+			ctx.lineWidth = 1.5 * dpr;
+			ctx.beginPath();
+			ctx.moveTo(x, top);
+			ctx.lineTo(x, top + h);
+			ctx.stroke();
+		}
+		for (const { p, x } of xs) {
+			const w = ctx.measureText(p.label).width + 10 * dpr;
+			// Centred on the line, kept inside the plot.
+			const x0 = Math.min(Math.max(x - w / 2, left), left + width - w);
+			if (x0 + w > lastEnd - 2 * dpr) continue;
+			lastEnd = x0;
+			const y0 = top + h - ph - 2 * dpr;
+			ctx.fillStyle = ink;
+			ctx.beginPath();
+			ctx.roundRect(x0, y0, w, ph, 4 * dpr);
+			ctx.fill();
+			ctx.fillStyle = surface;
+			ctx.fillText(p.label, x0 + 5 * dpr, y0 + ph / 2);
+		}
+		ctx.lineWidth = 2 * dpr;
+		// Larger than a step dot (r 6), so a step drawn on top still shows the ink ring.
+		const r = 7 * dpr;
+		for (const { p, x } of xs)
+			for (let k = 1; k < u.series.length; k++) {
+				const v = u.data[k]?.[p.x];
+				if (v == null || !u.series[k].show) continue;
+				const y = u.valToPos(v as number, 'y', true);
+				ctx.beginPath();
+				ctx.arc(x, y, r, 0, 2 * Math.PI);
+				ctx.fillStyle = cssVar(series[k - 1].color);
+				ctx.fill();
+				ctx.strokeStyle = ink;
+				ctx.stroke();
+			}
 		ctx.restore();
 	}
 
@@ -216,6 +280,7 @@
 				draw: [
 					(u) => {
 						drawMarks(u);
+						drawPins(u);
 						drawDots(u);
 						if (!firstDraw && u.data[0]?.length) {
 							firstDraw = true;
@@ -288,7 +353,7 @@
 	});
 
 	$effect(() => {
-		void [xs, ys, series, xRange, marks, dots, spreads];
+		void [xs, ys, series, xRange, marks, pins, dots, spreads];
 		apply();
 	});
 </script>
