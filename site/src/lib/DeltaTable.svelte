@@ -1,7 +1,7 @@
 <script lang="ts">
 	// A against B: one array lookup per metric over already-loaded chunks.
 	import VirtualTable from './VirtualTable.svelte';
-	import { fmtNum, fmtPct, mark, metricName, type Metric, type Source, type Value } from './data.svelte';
+	import { fmtNum, fmtPct, mark, type Metric, type Source, type Value } from './data.svelte';
 
 	let {
 		src,
@@ -42,7 +42,7 @@
 		for (let i = 0; i < ms.length; i++) {
 			const m = ms[i];
 			if (group && m.group !== group && !(m.group ?? '').startsWith(group + '/')) continue;
-			const name = metricName(m);
+			const name = src.nameOf(m);
 			if (t && !name.toLowerCase().includes(t)) continue;
 			const col = src.columns[i];
 			const va = col[a],

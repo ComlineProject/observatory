@@ -133,6 +133,8 @@ def build(out, scale, seed=7):
 
     ts_base = {ids[m]: int(base[m] * factor[m]) for m in shared}
     ts_base.update(zip(own, own_base))
+    # Format 2: the interpreter-only count and the optimising tier's (cheaper).
+    opt = {name: rng.uniform(0.2, 0.5) for name in ts_base}
 
     def bench_ts(i, commit, date):
         # Like the Rust one, counts move in steps, a tenth of them per version.
@@ -140,7 +142,8 @@ def build(out, scale, seed=7):
         for name, v in ts_base.items():
             if rng.random() < 0.10:
                 v = ts_base[name] = max(10, int(v * (1 + rng.uniform(-0.02, 0.025))))
-            benches[name] = {"ir": v}
+            benches[name] = {"instructions": {"value": v},
+                             "instructions-opt": {"value": max(10, int(v * opt[name]))}}
         return {"commit": commit, "toolchain": "node 22 (synthetic)", "benches": benches}
 
     emit({"id": "syn-bench-ts", "kind": "bench", "title": "Synthetic TS bench", "repo": "syn",

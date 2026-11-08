@@ -7,7 +7,7 @@
 	import { fmtNum, loadManifest, loadSource, type ManifestSource, type Source } from '$lib/data.svelte';
 
 	const REFERENCE = 'runtime-bench';
-	const url = new UrlState(['ref', 'other']);
+	const url = new UrlState(['ref', 'other', 'metric']);
 
 	let benches = $state<ManifestSource[] | null>(null);
 	let err = $state('');
@@ -63,6 +63,12 @@
 		const l = parse(param)?.[1];
 		return (l ? s.byLabel.get(l) : undefined) ?? s.latest();
 	}
+	let otherMetrics = $derived([...new Set(otherSrc?.index.metrics.map((m) => m.metric) ?? [])]);
+	let metric = $derived.by(() => {
+		const m = url.get('metric');
+		if (m && otherMetrics.includes(m)) return m;
+		return otherMetrics.includes('instructions-opt') ? 'instructions-opt' : 'instructions';
+	});
 	let refV = $derived(versionOf(refSrc, url.get('ref')));
 	let otherV = $derived(versionOf(otherSrc, url.get('other')));
 
@@ -75,7 +81,7 @@
 		const s = await loadSource(id);
 		await s.loadInitial();
 		loaded[id] = s;
-		url.set({ [side]: `${id}:${s.index.versions.at(-1)!.label}` });
+		url.set({ [side]: `${id}:${s.index.versions.at(-1)!.label}`, ...(side === 'other' ? { metric: null } : {}) });
 	}
 	function pickVersion(side: 'ref' | 'other', label: string) {
 		url.set({ [side]: `${side === 'ref' ? refId : otherId}:${label}` });
@@ -92,7 +98,6 @@
 		ratio: number;
 	}
 	const family = (key: string) => key.split('/')[0];
-	const idOf = (key: string, metric: string) => `${key}\0${metric}`;
 
 	let ready = $derived(
 		(void refSrc?.rev, void otherSrc?.rev, !!refSrc && !!otherSrc && refV !== null && otherV !== null && refSrc.hasVersion(refV) && otherSrc.hasVersion(otherV))
@@ -104,28 +109,25 @@
 		const onlyRef: string[] = [];
 		const onlyOther: string[] = [];
 		if (!ready || !refSrc || !otherSrc || refV === null || otherV === null) return { rows, onlyRef, onlyOther };
-		void refSrc.rev, otherSrc.rev;
+		void refSrc.rev, otherSrc.rev, metric;
 		const theirs = new Map<string, number>();
 		otherSrc.index.metrics.forEach((m, i) => {
 			const v = otherSrc!.columns[i][otherV!];
-			if (typeof v === 'number') theirs.set(idOf(m.key, m.metric), v);
+			if (m.metric === metric && typeof v === 'number') theirs.set(m.key, v);
 		});
 		refSrc.index.metrics.forEach((m, i) => {
 			const r = refSrc!.columns[i][refV!];
 			if (typeof r !== 'number') return;
-			const id = idOf(m.key, m.metric);
-			const o = theirs.get(id);
-			const name = m.metric === 'instructions' ? m.key : `${m.key} · ${m.metric}`;
+			if (m.metric !== 'instructions') return;
+			const o = theirs.get(m.key);
+			const name = m.key;
 			if (o === undefined) onlyRef.push(name);
 			else if (r > 0) {
-				rows.push({ key: m.key, metric: m.metric, name, group: m.group, family: family(m.key), r, o, ratio: o / r });
+				rows.push({ key: m.key, metric, name, group: m.group, family: family(m.key), r, o, ratio: o / r });
 			}
 		});
-		const have = new Set(refSrc.index.metrics.map((m) => idOf(m.key, m.metric)));
-		for (const m of otherSrc.index.metrics) {
-			if (typeof theirs.get(idOf(m.key, m.metric)) === 'number' && !have.has(idOf(m.key, m.metric)))
-				onlyOther.push(m.metric === 'instructions' ? m.key : `${m.key} · ${m.metric}`);
-		}
+		const have = new Set(refSrc.index.metrics.filter((m) => m.metric === 'instructions').map((m) => m.key));
+		for (const k of theirs.keys()) if (!have.has(k)) onlyOther.push(k);
 		return { rows, onlyRef, onlyOther };
 	});
 
@@ -182,7 +184,9 @@
 	</p>
 	<p class="muted note" data-testid="ratio-note">
 		Both are instruction counts under callgrind. For a JIT runtime they are counted after warm-up, so compare orders of magnitude and
-		trends rather than single-digit percentages.
+		trends rather than single-digit percentages. The reference side is its <span class="mono">instructions</span>. On the other side,
+		<span class="mono">instructions-opt</span> is the optimizing JIT tier after warm-up (closest to real use); <span class="mono">instructions</span>
+		is the interpreter only (exact, but far slower than what users see).
 	</p>
 
 	<div class="row">
@@ -199,6 +203,13 @@
 		</select>
 		{#if otherSrc && otherV !== null}
 			<VersionPicker name="other" items={pickItems(otherSrc)} value={otherSrc.index.versions[otherV].label} onpick={(l) => pickVersion('other', l)} />
+		{/if}
+		{#if otherMetrics.length > 1}
+			<label>metric
+				<select value={metric} aria-label="other metric" onchange={(e) => url.set({ metric: e.currentTarget.value })}>
+					{#each otherMetrics as m (m)}<option value={m}>{m}</option>{/each}
+				</select>
+			</label>
 		{/if}
 	</div>
 

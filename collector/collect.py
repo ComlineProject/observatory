@@ -190,7 +190,9 @@ def normalise_bench(rep):
         out = {}
         for name, v in entry.items():
             if isinstance(v, dict):  # format 2: {value, runner, spread?}
-                metric, value = f"{name}@{v.get('runner')}", _num(v.get("value"))
+                runner = v.get("runner")
+                metric = name if runner in (None, "") else f"{name}@{runner}"
+                value = _num(v.get("value"))
                 unit = name
             else:                    # format 1: {"ir": N}
                 metric = "instructions" if name == "ir" else name

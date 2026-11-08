@@ -2,7 +2,7 @@
 	import Chart, { type SeriesSpec } from './Chart.svelte';
 	import VirtualTable from './VirtualTable.svelte';
 	import VersionPicker from './VersionPicker.svelte';
-	import { fmtNum, metricName, type Source } from './data.svelte';
+	import { fmtNum, type Source } from './data.svelte';
 	import { MAX_SERIES, SERIES, pickItems } from './pick';
 	import type { Ctx } from './SourcePage.svelte';
 
@@ -38,7 +38,7 @@
 		const out: number[] = [];
 		metrics.forEach((m, i) => {
 			if (g && m.group !== g && !(m.group ?? '').startsWith(g + '/')) return;
-			if (t && !metricName(m).toLowerCase().includes(t)) return;
+			if (t && !S.nameOf(m).toLowerCase().includes(t)) return;
 			out.push(i);
 		});
 		return out;
@@ -71,7 +71,7 @@
 	}
 
 	let ys = $derived((void src.rev, selected.map(([i]) => src.columns[i].slice() as (number | null)[])));
-	let series = $derived<SeriesSpec[]>(selected.map(([i, s]) => ({ label: metricName(metrics[i]), color: SERIES[s] })));
+	let series = $derived<SeriesSpec[]>(selected.map(([i, s]) => ({ label: S.nameOf(metrics[i]), color: SERIES[s] })));
 	let marks = $derived([
 		...src.releaseIdx.map((i) => ({ x: i, label: versions[i].release! })),
 		...ctx.marked.filter((i) => !versions[i].release).map((i) => ({ x: i, label: versions[i].label }))
@@ -131,15 +131,15 @@
 			<td>
 				<input
 					type="checkbox"
-					aria-label="show {metricName(metrics[i])}"
+					aria-label="show {S.nameOf(metrics[i])}"
 					checked={i in slots}
 					disabled={!(i in slots) && selected.length >= MAX_SERIES}
 					onchange={() => toggle(i)}
 				/>
 			</td>
-			<td title={metricName(metrics[i])}>
+			<td title={S.nameOf(metrics[i])}>
 				{#if i in slots}<span class="swatch" style:background="var({SERIES[slots[i]]})"></span>{/if}
-				{metricName(metrics[i])}
+				{S.nameOf(metrics[i])}
 			</td>
 			<td class="num">{(void src.rev, fmtNum(src.columns[i][at]))}</td>
 		</tr>
