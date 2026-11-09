@@ -14,10 +14,13 @@ one commit on top of the branch, so its history is the series of reports
 pointing at that report.
 
 The branch isn't the default branch, so no ruleset covers it, and nothing is
-ever pushed to `main`. The workflows call this only on `push` to `main`, on
-`schedule`, and on `workflow_dispatch` from `main`; never on a pull request.
+ever pushed to the default branch (`main` or `master`, per repo). The
+workflows call this only on a push to the default branch, on `schedule`, and
+on `workflow_dispatch` from it; never on a pull request.
 
-A report names the `main` commit it measured (`commit`). One older than the
+A report names the commit it measured (`commit`), and the publish commit's
+message names the branch it was measured on: the run's `GITHUB_REF_NAME`,
+never a fixed name. One older than the
 report already published (an ancestor of its commit) is skipped, so a slow
 run can't replace a newer one; that needs the history, so check out with
 `fetch-depth: 0`. A push that loses a race with another publish is retried on
@@ -85,6 +88,15 @@ def is_older(ours, theirs):
     return git("merge-base", "--is-ancestor", ours, theirs, check=False).returncode == 0
 
 
+def source_branch():
+    """The branch the reports were measured on: the workflow's branch
+    (`GITHUB_REF_NAME` when `GITHUB_REF` is a branch), else the checkout's
+    branch, else `HEAD` for a detached checkout."""
+    if os.environ.get("GITHUB_REF", "").startswith("refs/heads/") and os.environ.get("GITHUB_REF_NAME"):
+        return os.environ["GITHUB_REF_NAME"]
+    return git("rev-parse", "--abbrev-ref", "HEAD", check=False).stdout.strip() or "HEAD"
+
+
 def build(parent, reports, readme):
     """`(commit, published)`: a commit on `parent` with `reports`, or None if
     there's nothing new; and the names it publishes."""
@@ -117,7 +129,7 @@ def build(parent, reports, readme):
     run = os.environ.get("GITHUB_RUN_ID")
     url = (f"{os.environ.get('GITHUB_SERVER_URL')}/{os.environ.get('GITHUB_REPOSITORY')}"
            f"/actions/runs/{run}") if run else "a local run"
-    message = (f"Publish {', '.join(published)} for main@{commits[0][:12]}\n\n"
+    message = (f"Publish {', '.join(published)} for {source_branch()}@{commits[0][:12]}\n\n"
                f"Measured at {', '.join(sorted(set(commits)))}, by {url}.\n")
     args = ["commit-tree", tree, "-F", "-"] + (["-p", parent] if parent else [])
     return git(*args, input=message).stdout.strip(), published

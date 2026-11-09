@@ -29,10 +29,10 @@ jobs:
           path: .cache/repos
           key: repos-${{ github.run_id }}
           restore-keys: repos-
-      - name: Test the collector and the report actions
+      - name: Test the collector and the actions
         run: |
           python3 -m unittest discover -s collector
-          for d in .github/actions/report-*/; do python3 -m unittest discover -s "$d"; done
+          for d in .github/actions/*/; do python3 -m unittest discover -s "$d"; done
       - name: Collect
         env:
           GITHUB_TOKEN: ${{ github.token }}  # the ci sources read workflow runs
