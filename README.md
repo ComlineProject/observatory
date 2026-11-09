@@ -39,6 +39,22 @@ Design: [the project dashboard proposal](https://comlineproject.github.io/docs/p
       output: reports/rust.compile.json
       args: --workspace --release  # cargo build arguments (a clean build)
       runner: github-hosted        # the machine class; times compare per runner
+  # Fuzzing: each fuzz job records its target, then one job combines them.
+  - uses: ComlineProject/observatory/.github/actions/report-fuzz@v1
+    with:
+      mode: target
+      name: ids_parse
+      log: ${{ runner.temp }}/fuzz.log   # libFuzzer's output, -print_final_stats=1
+      corpus: core/fuzz/corpus/ids_parse
+      artifacts: core/fuzz/artifacts/ids_parse
+      toolchain: rustc …
+      fragment: ${{ runner.temp }}/stats/ids_parse.json
+  - uses: ComlineProject/observatory/.github/actions/report-fuzz@v1
+    with:
+      mode: combine
+      fragments: ${{ runner.temp }}/stats   # the downloaded fragments
+      expect: ids_parse ids_compile idp_parse
+      output: reports/core.fuzz.json
   ```
 
   The coverage and compile actions expect the Rust toolchain to be set up

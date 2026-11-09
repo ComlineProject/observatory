@@ -106,6 +106,14 @@ repo = "comline-typescript"
 branch = "reports"
 path = "typescript.fuzz.json"
 
+[[source]]
+id = "core-fuzz"
+kind = "fuzz"
+title = "Compiler (parsers)"
+repo = "core"
+branch = "reports"
+path = "core.fuzz.json"
+
 # Conformance
 
 [[source]]
