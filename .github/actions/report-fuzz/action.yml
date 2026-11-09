@@ -1,21 +1,22 @@
 name: Report fuzzing
 description: >
   Write a `fuzz` report (DATA.md, kind `fuzz`) from cargo-fuzz runs. Each fuzz
-  job records its target (`mode: target`), and a final job combines the
-  fragments (`mode: combine`) into the report. Publish it with
+  job records its target (`mode: target`), a property-test job may record its
+  verdicts (`mode: proptest`), and a final job combines the fragments
+  (`mode: combine`) into the report. Publish it with
   `publish-report`. libFuzzer's single-process and fork-mode (`-fork=N`) logs
   both work.
 
 inputs:
   mode:
-    description: "`target`: record one target's run. `combine`: write the report from the fragments."
+    description: "`target`: record one target's run. `proptest`: record the property tests' verdicts. `combine`: write the report from the fragments."
     required: true
   # mode: target
   name:
     description: "target: the cargo-fuzz target."
     default: ''
   log:
-    description: "target: libFuzzer's output, run with `-print_final_stats=1`."
+    description: "target: libFuzzer's output, run with `-print_final_stats=1`. proptest: the test harness's output (its `test NAME ... ok` lines)."
     default: ''
   corpus:
     description: "target: the target's corpus directory after the run."
@@ -30,7 +31,11 @@ inputs:
     description: "target: the toolchain, e.g. the output of `rustc --version`."
     default: ''
   fragment:
-    description: "target: the fragment file to write, e.g. `$RUNNER_TEMP/stats/<target>.json`."
+    description: "target, proptest: the fragment file to write, e.g. `$RUNNER_TEMP/stats/<target>.json`."
+    default: ''
+  # mode: proptest
+  cases:
+    description: "proptest: the case count the tests ran with (`PROPTEST_CASES`)."
     default: ''
   # mode: combine
   fragments:
@@ -62,6 +67,7 @@ runs:
         WALL_SECONDS: ${{ inputs.wall-seconds }}
         TOOLCHAIN: ${{ inputs.toolchain }}
         FRAGMENT: ${{ inputs.fragment }}
+        CASES: ${{ inputs.cases }}
         FRAGMENTS: ${{ inputs.fragments }}
         EXPECT: ${{ inputs.expect }}
         OUTPUT: ${{ inputs.output }}
@@ -75,6 +81,8 @@ runs:
           target)
             python3 "$script" target --name "$NAME" --toolchain "$TOOLCHAIN" --log "$LOG" \
               --corpus "$CORPUS" --artifacts "$ARTIFACTS" --wall-seconds "${WALL_SECONDS:-0}" --out "$FRAGMENT" ;;
+          proptest)
+            python3 "$script" proptest --log "$LOG" --cases "$CASES" --out "$FRAGMENT" ;;
           combine)
             args=(--commit "$COMMIT" --run "$RUN" --fragments "$FRAGMENTS" --report "$OUTPUT")
             [ -n "$SUBJECT" ] && args+=(--subject "$SUBJECT")
@@ -83,5 +91,5 @@ runs:
             [ -n "$EXPECT" ] && args+=(--expect $EXPECT)
             python3 "$script" combine "${args[@]}" ;;
           *)
-            echo "::error::report-fuzz: mode must be 'target' or 'combine', not '$MODE'"; exit 1 ;;
+            echo "::error::report-fuzz: mode must be 'target', 'proptest' or 'combine', not '$MODE'"; exit 1 ;;
         esac

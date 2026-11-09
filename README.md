@@ -49,6 +49,12 @@ Design: [the project dashboard proposal](https://comlineproject.github.io/docs/p
       artifacts: core/fuzz/artifacts/ids_parse
       toolchain: rustc …
       fragment: ${{ runner.temp }}/stats/ids_parse.json
+  - uses: ComlineProject/observatory/.github/actions/report-fuzz@v1   # optional
+    with:
+      mode: proptest
+      log: ${{ runner.temp }}/proptest.log   # cargo test's output
+      cases: 100000
+      fragment: ${{ runner.temp }}/stats/proptest.json
   - uses: ComlineProject/observatory/.github/actions/report-fuzz@v1
     with:
       mode: combine
