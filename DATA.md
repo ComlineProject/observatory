@@ -34,7 +34,7 @@ repo = "runtime"
 branch = "main"
 path = "runtime/conformance/reports/rust.json"
 # conformance only: where the feature titles come from (the default branch's tip)
-features = { repo = "runtime", path = "runtime/conformance/features.json" }
+features = { repo = "specification", path = "features.json" }
 ```
 
 A source's **branch** is walked first-parent, oldest first; each commit that
