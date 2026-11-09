@@ -5,8 +5,9 @@ description: >
   measured; one older than the report already published is skipped.
 
 # The calling job needs `permissions: contents: write` and a checkout with
-# `fetch-depth: 0` (the skip check walks history). Call it only from `main`,
-# a schedule or a manual run, never from a pull request; pass `dry-run: true`
+# `fetch-depth: 0` (the skip check walks history). Call it only from the
+# default branch (`main` or `master`), a schedule or a manual run, never from
+# a pull request; pass `dry-run: true`
 # elsewhere to see the commit without pushing. Details: publish-report.py.
 
 inputs:
