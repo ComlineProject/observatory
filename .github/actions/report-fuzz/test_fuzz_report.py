@@ -49,6 +49,17 @@ class T(unittest.TestCase):
         self.assertEqual(rep["targets"]["two"], {"seconds": 21, "executions": 9000, "corpus": 1, "findings": 0})
         self.assertIn("error", rep["targets"]["gone"])
 
+    def test_proptest(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.target(d, "one", SINGLE)
+            Path(f"{d}/p.log").write_text("test a_prop ... ok\ntest b_prop ... FAILED\ntest c ... ignored\n")
+            run("proptest", "--log", f"{d}/p.log", "--cases", "100000", "--out", f"{d}/stats/proptest.json")
+            run("combine", "--commit", "abc", "--run", "r", "--fragments", f"{d}/stats",
+                "--subject", "rust", "--report", f"{d}/r.json")
+            rep = json.loads(Path(f"{d}/r.json").read_text())
+        self.assertEqual(rep["proptest"], {"cases": 100000, "properties": {"a_prop": "pass", "b_prop": "fail"}})
+        self.assertEqual(list(rep["targets"]), ["one"])
+
     def test_subject(self):
         with tempfile.TemporaryDirectory() as d:
             self.target(d, "one", SINGLE)
