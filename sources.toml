@@ -25,6 +25,13 @@ default_branch = "master"
 tag = '^comline-core-v(?P<version>\d+\.\d+\.\d+(?:[-+].*)?)$'
 
 [[repo]]
+name = "specification"
+url = "https://github.com/ComlineProject/specification"
+default_branch = "main"
+# The spec's own version (VERSION), as `v0.10`.
+tag = '^v(?P<version>\d+\.\d+(?:\.\d+)?)$'
+
+[[repo]]
 name = "cli"
 url = "https://github.com/ComlineProject/cli"
 default_branch = "main"
@@ -133,7 +140,7 @@ title = "Rust runtime"
 repo = "runtime"
 branch = "main"
 path = "runtime/conformance/reports/rust.json"
-features = { repo = "runtime", path = "runtime/conformance/features.json" }
+features = { repo = "specification", path = "features.json" }
 
 [[source]]
 id = "wire-typescript"
@@ -143,7 +150,7 @@ title = "TypeScript runtime"
 repo = "comline-typescript"
 branch = "main"
 path = "runtime/conformance-report.json"
-features = { repo = "runtime", path = "runtime/conformance/features.json" }
+features = { repo = "specification", path = "features.json" }
 
 # Binary size
 
