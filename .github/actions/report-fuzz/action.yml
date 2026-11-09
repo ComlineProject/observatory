@@ -1,0 +1,87 @@
+name: Report fuzzing
+description: >
+  Write a `fuzz` report (DATA.md, kind `fuzz`) from cargo-fuzz runs. Each fuzz
+  job records its target (`mode: target`), and a final job combines the
+  fragments (`mode: combine`) into the report. Publish it with
+  `publish-report`. libFuzzer's single-process and fork-mode (`-fork=N`) logs
+  both work.
+
+inputs:
+  mode:
+    description: "`target`: record one target's run. `combine`: write the report from the fragments."
+    required: true
+  # mode: target
+  name:
+    description: "target: the cargo-fuzz target."
+    default: ''
+  log:
+    description: "target: libFuzzer's output, run with `-print_final_stats=1`."
+    default: ''
+  corpus:
+    description: "target: the target's corpus directory after the run."
+    default: ''
+  artifacts:
+    description: "target: the target's artifacts directory (findings)."
+    default: ''
+  wall-seconds:
+    description: "target: the step's wall-clock seconds, used when libFuzzer printed none (a run that stopped on a finding)."
+    default: '0'
+  toolchain:
+    description: "target: the toolchain, e.g. the output of `rustc --version`."
+    default: ''
+  fragment:
+    description: "target: the fragment file to write, e.g. `$RUNNER_TEMP/stats/<target>.json`."
+    default: ''
+  # mode: combine
+  fragments:
+    description: "combine: the directory holding the fragments (searched recursively)."
+    default: ''
+  expect:
+    description: "combine: the targets that must appear, space-separated; a missing one gets an error entry."
+    default: ''
+  output:
+    description: "combine: the report file to write, e.g. `reports/core.fuzz.json`."
+    default: ''
+  markdown:
+    description: "combine: also write a Markdown summary here; optional."
+    default: ''
+  subject:
+    description: "combine: the report's `runtime` field (e.g. `rust`); optional."
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        NAME: ${{ inputs.name }}
+        LOG: ${{ inputs.log }}
+        CORPUS: ${{ inputs.corpus }}
+        ARTIFACTS: ${{ inputs.artifacts }}
+        WALL_SECONDS: ${{ inputs.wall-seconds }}
+        TOOLCHAIN: ${{ inputs.toolchain }}
+        FRAGMENT: ${{ inputs.fragment }}
+        FRAGMENTS: ${{ inputs.fragments }}
+        EXPECT: ${{ inputs.expect }}
+        OUTPUT: ${{ inputs.output }}
+        MARKDOWN: ${{ inputs.markdown }}
+        SUBJECT: ${{ inputs.subject }}
+        COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        script="$GITHUB_ACTION_PATH/fuzz-report.py"
+        case "$MODE" in
+          target)
+            python3 "$script" target --name "$NAME" --toolchain "$TOOLCHAIN" --log "$LOG" \
+              --corpus "$CORPUS" --artifacts "$ARTIFACTS" --wall-seconds "${WALL_SECONDS:-0}" --out "$FRAGMENT" ;;
+          combine)
+            args=(--commit "$COMMIT" --run "$RUN" --fragments "$FRAGMENTS" --report "$OUTPUT")
+            [ -n "$SUBJECT" ] && args+=(--subject "$SUBJECT")
+            [ -n "$MARKDOWN" ] && args+=(--markdown "$MARKDOWN")
+            # shellcheck disable=SC2206 # target names are space-separated on purpose
+            [ -n "$EXPECT" ] && args+=(--expect $EXPECT)
+            python3 "$script" combine "${args[@]}" ;;
+          *)
+            echo "::error::report-fuzz: mode must be 'target' or 'combine', not '$MODE'"; exit 1 ;;
+        esac

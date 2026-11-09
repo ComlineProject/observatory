@@ -237,8 +237,10 @@ entry has `bench` = `b` and `version` = `i`, otherwise *unexplained*.
 
 ### `fuzz`
 
-Input: today's `rust.fuzz.json` (`runtime/fuzz/README.md#the-report` in the
-runtime).
+Input: a report written by the `report-fuzz` action, such as core's
+`core.fuzz.json`, or the runtime's `rust.fuzz.json`
+(`runtime/fuzz/README.md#the-report` in the runtime). The `runtime` field and
+`proptest` are optional.
 
 - Metric rows per target: `key` = target, `metric` ∈ `executions`, `corpus`,
   `findings`, `seconds`; `type` = `"number"`. A target with `error` has `null`
