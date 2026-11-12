@@ -9,22 +9,31 @@ on:
     - cron: '30 4 * * *'   # daily
     - cron: '0 */4 * * *'  # new benchmark runs
 
+# A newer push to the same pull request supersedes this run; everything else
+# (pushes, the schedules, manual runs) queues, so a deploy that is already
+# running is never cancelled.
 concurrency:
-  group: site-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
-          python-version: '3.13'
-      - uses: actions/cache@v6
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: 3.13.18
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache/repos
           key: repos-${{ github.run_id }}
@@ -37,9 +46,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}  # the ci sources read workflow runs
         run: python3 collector/collect.py --sources sources.toml --out site/static/data --cache .cache/repos
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 22.23.5
           cache: npm
           cache-dependency-path: site/package-lock.json
       - run: npm ci
@@ -50,30 +59,39 @@ jobs:
         working-directory: site
         env:
           BASE_PATH: /observatory
-      - uses: actions/upload-pages-artifact@v5
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:
           path: site/build
 
   budget:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
-          python-version: '3.13'
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: 3.13.18
       - name: Synthetic dataset, ten times today's size
         run: python3 collector/synthetic.py --scale 10 --out site/static/data
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 22.23.5
           cache: npm
           cache-dependency-path: site/package-lock.json
       - run: npm ci
         working-directory: site
       - run: npm run build
         working-directory: site
-      - run: npx playwright install --with-deps chromium
+      # The browser is Playwright's own Chromium at the version the lockfile
+      # pins (@playwright/test is an exact version); the runner image already
+      # carries the libraries it needs, so no `--with-deps` (which runs apt).
+      - run: npx playwright install chromium
         working-directory: site
       - run: npm run test:budget
         working-directory: site
@@ -81,7 +99,8 @@ jobs:
   deploy:
     needs: build
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       pages: write
       id-token: write
@@ -89,5 +108,8 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
       - id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
