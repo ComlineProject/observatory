@@ -1,0 +1,23 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "github>ComlineProject/.github:renovate-config"
+  ],
+  "customManagers": [
+    {
+      "description": [
+        "The tool version `report-rust-coverage` passes to taiki-e/install-action (`tool: cargo-llvm-cov@x.y.z`), which no built-in manager reads"
+      ],
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/actions/[^/]+/action\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "tool:\\s*cargo-llvm-cov@(?<currentValue>[0-9][^\\s\"']*)"
+      ],
+      "depNameTemplate": "taiki-e/cargo-llvm-cov",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    }
+  ]
+}
