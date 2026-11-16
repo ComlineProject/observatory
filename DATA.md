@@ -256,7 +256,8 @@ Input: a report written by the `report-fuzz` action, such as core's
 
 Input, either shape:
 
-- generation's `features.json`:
+- a code generator's `features.json` (comline-rust and comline-typescript each publish their own, with the
+  same `features` list and only their own entry in `generators`):
   `{ features: [{id,title,description}], generators: [{ name, support: { "<feature>": { state, proven_by, note, since, tracking, failing? } } }] }`;
 - a runtime report: `{ runtime, support: { "<feature>": { state, proven_by, note?, tracking?, failing? } } }`.
 
@@ -264,7 +265,7 @@ Input, either shape:
   or the value of the report's `runtime` field, e.g. `rust`), `metric` = `"state"`, `type` = `"state"`, values `"supported"` /
   `"partial"` / `"ignored"` / `"unsupported"` / `null` (also for any other
   value).
-- generation's own `features` list (from the latest version) fills `index.features` there; a runtime
+- the generator file's own `features` list (from the latest version) fills `index.features` there; a runtime
   report takes them from `features` in `sources.toml`.
 - Shard: `{ "subjects": { "<subject>": { "<feature>": { state, proven_by, note, tracking, failing } } } }`
   with absent fields as `null` and `proven_by` / `failing` as sorted lists
@@ -274,7 +275,7 @@ Input, either shape:
 `matrix` as one table. Their histories are separate, so a matrix "version" is
 a point in time: each source at its newest version on or before that date.
 Labels can repeat across sources, so the site's URLs name a version as
-`<source id>:<label>` (`?a=codegen:unreleased-dev.1`).
+`<source id>:<label>` (`?a=codegen-rust:unreleased-dev.1`).
 
 ### `size`
 

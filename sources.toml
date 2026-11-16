@@ -123,13 +123,24 @@ path = "core.fuzz.json"
 
 # Conformance
 
+# Each generator publishes its own `features.json`; the sources share a
+# matrix, so the site shows them as one table.
 [[source]]
-id = "codegen"
+id = "codegen-rust"
 kind = "conformance"
 matrix = "codegen"
-title = "Code generators"
-repo = "generation"
-branch = "master"
+title = "Rust generator"
+repo = "comline-rust"
+branch = "main"
+path = "features.json"
+
+[[source]]
+id = "codegen-typescript"
+kind = "conformance"
+matrix = "codegen"
+title = "TypeScript generator"
+repo = "comline-typescript"
+branch = "main"
 path = "features.json"
 
 [[source]]
